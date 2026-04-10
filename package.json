@@ -1,0 +1,45 @@
+{
+  "name": "ghq-sector",
+  "version": "0.1.0",
+  "description": "CLI for organizing ghq-managed repositories into a symlinked workspace with code-workspace generation and a local config editor.",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "gsec": "./dist/cli/main.mjs",
+    "ghq-sector": "./dist/cli/main.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "cli": "tsx src/cli/main.ts",
+    "test": "vitest run --maxWorkers 1",
+    "typecheck": "tsc --noEmit",
+    "build-ui": "bun install --cwd ui && bun run --cwd ui build",
+    "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
+    "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
+    "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin"
+  },
+  "keywords": [
+    "ghq",
+    "workspace",
+    "cli",
+    "vscode"
+  ],
+  "dependencies": {
+    "cac": "^6.7.14",
+    "valibot": "^1.1.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.0",
+    "tsdown": "^0.21.7",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  }
+}

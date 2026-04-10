@@ -1,0 +1,20 @@
+{
+  "name": "ghq-sector-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "svelte": "^5.55.2",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "@visual-json/core": "^0.4.0",
+    "@visual-json/svelte": "^0.4.0",
+    "lucide-svelte": "^1.0.1"
+  }
+}
