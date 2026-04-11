@@ -108,8 +108,8 @@ async function createEditServer(options: {
     try {
       await handleRequest(request, response, options);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendJson(response, 500, { ok: false, message });
+      console.error("Unhandled request error", error);
+      sendJson(response, 500, { ok: false, message: "Internal server error" });
     }
   });
 
