@@ -43,6 +43,9 @@ jobs:
       - name: Install UI dependencies
         run: bun install --cwd ui --frozen-lockfile
 
+      - name: Build distributable files
+        run: bun run build
+
       - name: Show Node and npm versions
         run: |
           node --version
