@@ -174,6 +174,18 @@ Typical config fields:
 - `resources`
 - `hooks`
 
+## Maintainer release flow
+
+Project maintenance is PR-only:
+
+1. Merge conventional-commit PRs into `main`
+2. Let Release Please open or update the release PR
+3. Wait for `verify`, `audit`, and `codeql (javascript-typescript)` to pass on that release PR
+4. Merge the release PR
+5. Let the Release workflow publish from the GitHub Release
+
+Avoid direct pushes to `main` during normal operation.
+
 ## Support
 
 If you run into a problem or want to request a feature, open an issue on GitHub.

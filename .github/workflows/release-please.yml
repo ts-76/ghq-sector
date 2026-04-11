@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
   issues: write
@@ -26,3 +27,21 @@ jobs:
         with:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Trigger release PR checks
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(gh pr list \
+            --state open \
+            --json headRefName \
+            --jq '.[] | select(.headRefName | startswith("release-please--branches--"))[0]' || true)
+
+          if [ -z "$branch" ] || [ "$branch" = "null" ]; then
+            echo "No open release-please branch found; skipping workflow dispatch."
+            exit 0
+          fi
+
+          gh workflow run CI --ref "$branch"
+          gh workflow run Security --ref "$branch"
