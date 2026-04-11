@@ -1,6 +1,6 @@
 {
   "name": "ghq-sector",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "CLI for organizing ghq-managed repositories into a symlinked workspace with code-workspace generation and a local config editor.",
   "license": "MIT",
   "author": "ts-76",
