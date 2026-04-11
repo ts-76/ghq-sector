@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.3...ghq-sector-0.1.4) (2026-04-11)
+
+
+### Bug Fixes
+
+* **ci:** opt into Node 24 actions runtime and CodeQL v4 ([747d7eb](https://github.com/ts-76/ghq-sector/commit/747d7eb6b020e4eb0368091fa55322e92dbe91f5))
+* **ci:** run required checks on release PRs ([#6](https://github.com/ts-76/ghq-sector/issues/6)) ([43ae0c7](https://github.com/ts-76/ghq-sector/commit/43ae0c74a78b8d0170e3faf0f255743947690eeb))
+* **ci:** upgrade workflow actions for Node 24 ([70910cd](https://github.com/ts-76/ghq-sector/commit/70910cd811a0e68816bda9ef78d69d85973bfcef))
+
 ## [0.1.3](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.2...ghq-sector-0.1.3) (2026-04-11)
 
 
