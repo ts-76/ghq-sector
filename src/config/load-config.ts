@@ -33,7 +33,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<LoadedConfig> {
       }
 
       if (error instanceof Error) {
-        throw new Error(`invalid config at ${configPath}: ${error.message}`);
+        throw new Error(`invalid config at ${configPath}`, { cause: error });
       }
 
       throw error;
