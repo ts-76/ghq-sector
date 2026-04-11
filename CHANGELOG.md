@@ -1,7 +1,5 @@
 # Changelog
 
-This file is maintained automatically by the release workflow.
-
 ## [0.1.3](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.2...ghq-sector-0.1.3) (2026-04-11)
 
 
