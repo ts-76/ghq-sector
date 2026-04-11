@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.2...ghq-sector-0.1.3) (2026-04-11)
+
+
+### Bug Fixes
+
+* **ci:** allow manual PR verification runs ([0777387](https://github.com/ts-76/ghq-sector/commit/0777387026c4df325c34ead10533edc5ead14eea))
+* **ci:** allow manual release workflow runs ([3c06cf3](https://github.com/ts-76/ghq-sector/commit/3c06cf3297109b980db0d7d0f86bd3e3081856f6))
+
 ## [0.1.2](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.1...ghq-sector-0.1.2) (2026-04-11)
 
 
