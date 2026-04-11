@@ -174,6 +174,18 @@ gsec edit --host 0.0.0.0 --port 4173
 - `resources`
 - `hooks`
 
+## メンテナ向けリリースフロー
+
+通常運用では `main` への変更は PR 経由にします。
+
+1. `main` 向けの pull request を作成
+2. `verify` / `audit` / `codeql (javascript-typescript)` の完了を待つ
+3. pull request を merge
+4. `Release` workflow が `main` から GitHub Release 作成と npm publish を実行
+
+次の version は conventional commits（`feat:`、`fix:` など）から自動判定されます。
+通常運用での `main` への direct push は避けてください。
+
 ## サポート
 
 不具合報告や機能要望は GitHub Issues を利用してください。

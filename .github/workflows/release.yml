@@ -1,27 +1,30 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-  release:
-    types:
-      - published
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: write
   id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
-    if: github.event.release.prerelease == false
+  release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -51,12 +54,8 @@ jobs:
       - name: Show npm version after upgrade
         run: npm --version
 
-      - name: Verify package
-        run: |
-          bun run lint
-          bun run typecheck
-          bun run test
-          bun run build
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NPM_CONFIG_PROVENANCE: true
+        run: bun run release
