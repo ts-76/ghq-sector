@@ -17,6 +17,26 @@ export interface LoadedConfig {
 }
 
 export async function loadConfig(cwd = process.cwd()): Promise<LoadedConfig> {
+  const directConfigPath = CONFIG_CANDIDATES.find((candidate) =>
+    cwd.endsWith(candidate),
+  );
+  if (directConfigPath) {
+    try {
+      const raw = await readFile(cwd, "utf8");
+      const parsed = directConfigPath.endsWith(".json")
+        ? JSON.parse(raw)
+        : YAML.parse(raw);
+      const config = parseConfig(parsed);
+      return { path: cwd, config };
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`invalid config at ${cwd}`, { cause: error });
+      }
+
+      throw error;
+    }
+  }
+
   for (const candidate of CONFIG_CANDIDATES) {
     const configPath = path.join(cwd, candidate);
 
