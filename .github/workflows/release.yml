@@ -36,6 +36,17 @@ jobs:
       - name: Install UI dependencies
         run: bun install --cwd ui --frozen-lockfile
 
+      - name: Show Node and npm versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Show npm version after upgrade
+        run: npm --version
+
       - name: Verify package
         run: |
           bun run lint
