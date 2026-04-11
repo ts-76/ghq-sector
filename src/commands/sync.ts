@@ -1,9 +1,9 @@
-import path from 'node:path';
-import { loadConfig } from '../config/load-config.js';
-import { info, success, warn } from '../shared/logger.js';
-import { copyResources } from '../resources/copy-resources.js';
-import { generateCodeWorkspace } from '../workspace/generate-code-workspace.js';
-import { syncWorkspace } from '../workspace/sync-workspace.js';
+import path from "node:path";
+import { loadConfig } from "../config/load-config.js";
+import { copyResources } from "../resources/copy-resources.js";
+import { info, success, warn } from "../shared/logger.js";
+import { generateCodeWorkspace } from "../workspace/generate-code-workspace.js";
+import { syncWorkspace } from "../workspace/sync-workspace.js";
 
 export interface RunSyncResult {
   configPath: string;
@@ -19,7 +19,10 @@ export async function runSync(cwd = process.cwd()): Promise<RunSyncResult> {
   info(`loaded config: ${loaded.path}`);
 
   const result = await syncWorkspace(loaded.config);
-  const copiedResources = await copyResources(loaded.config, path.dirname(loaded.path));
+  const copiedResources = await copyResources(
+    loaded.config,
+    path.dirname(loaded.path),
+  );
   const codeWorkspacePath = await generateCodeWorkspace(loaded.config);
 
   success(`synced workspace: ${result.workspaceRoot}`);

@@ -1,10 +1,13 @@
-import path from 'node:path';
-import { mkdir, rm, symlink, access } from 'node:fs/promises';
-import type { GhqWsConfig } from '../config/schema.js';
-import { runHooks } from '../hooks/run-hooks.js';
-import { warn } from '../shared/logger.js';
-import { expandHome } from '../shared/paths.js';
-import { getRepoDestinationPath, getRepoSourcePath } from '../shared/repo-paths.js';
+import { access, mkdir, rm, symlink } from "node:fs/promises";
+import path from "node:path";
+import type { GhqWsConfig } from "../config/schema.js";
+import { runHooks } from "../hooks/run-hooks.js";
+import { warn } from "../shared/logger.js";
+import { expandHome } from "../shared/paths.js";
+import {
+  getRepoDestinationPath,
+  getRepoSourcePath,
+} from "../shared/repo-paths.js";
 
 export interface SyncWorkspaceResult {
   workspaceRoot: string;
@@ -12,7 +15,9 @@ export interface SyncWorkspaceResult {
   skipped: string[];
 }
 
-export async function syncWorkspace(config: GhqWsConfig): Promise<SyncWorkspaceResult> {
+export async function syncWorkspace(
+  config: GhqWsConfig,
+): Promise<SyncWorkspaceResult> {
   const workspaceRoot = expandHome(config.workspaceRoot);
   const ghqRoot = expandHome(config.ghqRoot);
   const linked: string[] = [];

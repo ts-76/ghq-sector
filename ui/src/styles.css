@@ -16,7 +16,9 @@
   --surface-soft: rgba(255, 255, 255, 0.02);
   color: var(--text);
   background: var(--bg-base);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    sans-serif;
 }
 
 html,
@@ -37,7 +39,7 @@ body {
 }
 
 code {
-  font-family: 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
 }
 
 button,
@@ -258,7 +260,9 @@ summary button {
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
 }
 
 .icon-only-button:hover::after,
@@ -349,14 +353,20 @@ summary button {
 .sidebar .disclosure,
 .sidebar .summary-label,
 .sidebar .doctor-summary,
+.sidebar li,
+.sidebar small,
+.sidebar strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.kv-list,
 .sidebar .check-list,
 .sidebar .kv-list,
 .sidebar .kv-list div,
 .sidebar .kv-list dd,
-.sidebar .kv-list code,
-.sidebar li,
-.sidebar small,
-.sidebar strong {
+.sidebar .kv-list code {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -510,6 +520,14 @@ summary button {
   font-size: 0.72rem;
 }
 
+.repo-preview-meta,
+.repo-preview-meta div,
+.repo-preview-meta dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .repo-preview-meta {
   margin: 0;
   display: grid;
@@ -593,12 +611,12 @@ summary button {
   display: none;
 }
 
-.disclosure[open] .summary-chevron {
-  transform: rotate(90deg);
-}
-
 .summary-chevron {
   transition: transform 0.15s ease;
+}
+
+.disclosure[open] .summary-chevron {
+  transform: rotate(90deg);
 }
 
 .summary-label {

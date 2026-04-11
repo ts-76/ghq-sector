@@ -13,7 +13,10 @@ export interface HookContext {
 }
 
 export function renderCommand(template: string, context: HookContext) {
-  return template.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, key: keyof HookContext) => {
-    return String(context[key] ?? '');
-  });
+  return template.replace(
+    /\{\{\s*([a-zA-Z]+)\s*\}\}/g,
+    (_, key: keyof HookContext) => {
+      return String(context[key] ?? "");
+    },
+  );
 }

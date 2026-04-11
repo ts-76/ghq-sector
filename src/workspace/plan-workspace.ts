@@ -1,8 +1,11 @@
-import path from 'node:path';
-import { access } from 'node:fs/promises';
-import type { GhqWsConfig } from '../config/schema.js';
-import { expandHome } from '../shared/paths.js';
-import { getRepoDestinationPath, getRepoSourcePath } from '../shared/repo-paths.js';
+import { access } from "node:fs/promises";
+import path from "node:path";
+import type { GhqWsConfig } from "../config/schema.js";
+import { expandHome } from "../shared/paths.js";
+import {
+  getRepoDestinationPath,
+  getRepoSourcePath,
+} from "../shared/repo-paths.js";
 
 export interface PlannedRepoLink {
   provider: string;
@@ -12,7 +15,7 @@ export interface PlannedRepoLink {
   ghqPath: string;
   workspacePath: string;
   available: boolean;
-  status: 'ready' | 'fetch';
+  status: "ready" | "fetch";
 }
 
 export interface PlannedResourceCopy {
@@ -45,11 +48,15 @@ export interface WorkspacePlan {
 export function buildCodeWorkspacePlan(config: GhqWsConfig): CodeWorkspacePlan {
   const workspaceRoot = expandHome(config.workspaceRoot);
   const enabled = config.editor?.codeWorkspace?.enabled ?? true;
-  const filename = config.editor?.codeWorkspace?.filename ?? `${path.basename(workspaceRoot)}.code-workspace`;
+  const filename =
+    config.editor?.codeWorkspace?.filename ??
+    `${path.basename(workspaceRoot)}.code-workspace`;
   const folders = [...config.repos]
     .sort((left, right) => {
       const categoryCompare = left.category.localeCompare(right.category);
-      return categoryCompare !== 0 ? categoryCompare : left.name.localeCompare(right.name);
+      return categoryCompare !== 0
+        ? categoryCompare
+        : left.name.localeCompare(right.name);
     })
     .map((repo) => ({
       path: `${repo.category}/${repo.name}`,
@@ -60,15 +67,18 @@ export function buildCodeWorkspacePlan(config: GhqWsConfig): CodeWorkspacePlan {
     path: enabled ? path.join(workspaceRoot, filename) : null,
     folders,
     settings: {
-      'files.exclude': {
-        '**/.git': true,
-        '**/.DS_Store': true,
+      "files.exclude": {
+        "**/.git": true,
+        "**/.DS_Store": true,
       },
     },
   };
 }
 
-export async function planWorkspace(config: GhqWsConfig, cwd = process.cwd()): Promise<WorkspacePlan> {
+export async function planWorkspace(
+  config: GhqWsConfig,
+  cwd = process.cwd(),
+): Promise<WorkspacePlan> {
   const workspaceRoot = expandHome(config.workspaceRoot);
   const ghqRoot = expandHome(config.ghqRoot);
 
@@ -78,7 +88,9 @@ export async function planWorkspace(config: GhqWsConfig, cwd = process.cwd()): P
         const categoryCompare = left.category.localeCompare(right.category);
         if (categoryCompare !== 0) return categoryCompare;
         const ownerCompare = left.owner.localeCompare(right.owner);
-        return ownerCompare !== 0 ? ownerCompare : left.name.localeCompare(right.name);
+        return ownerCompare !== 0
+          ? ownerCompare
+          : left.name.localeCompare(right.name);
       })
       .map(async (repo) => {
         const ghqPath = getRepoSourcePath(ghqRoot, repo);
@@ -99,16 +111,19 @@ export async function planWorkspace(config: GhqWsConfig, cwd = process.cwd()): P
           ghqPath,
           workspacePath,
           available,
-          status: available ? 'ready' : 'fetch',
+          status: available ? "ready" : "fetch",
         } satisfies PlannedRepoLink;
       }),
   );
 
-  const resources = (config.resources ?? []).map((resource) => ({
-    from: path.resolve(cwd, resource.from),
-    to: path.resolve(workspaceRoot, resource.to),
-    mode: resource.mode,
-  } satisfies PlannedResourceCopy));
+  const resources = (config.resources ?? []).map(
+    (resource) =>
+      ({
+        from: path.resolve(cwd, resource.from),
+        to: path.resolve(workspaceRoot, resource.to),
+        mode: resource.mode,
+      }) satisfies PlannedResourceCopy,
+  );
 
   const linkableRepos = repoLinks.filter((repo) => repo.available).length;
   const missingRepos = repoLinks.length - linkableRepos;

@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,22 +18,24 @@ export interface GhRepositoryCandidate {
 }
 
 export async function listGhOwnerCandidates(): Promise<GhOwnerCandidate[]> {
-  const { stdout } = await execFileAsync('gh', ['auth', 'status']);
+  const { stdout } = await execFileAsync("gh", ["auth", "status"]);
   const candidates: GhOwnerCandidate[] = [];
-  let currentHost = '';
+  let currentHost = "";
 
-  for (const line of stdout.split('\n')) {
+  for (const line of stdout.split("\n")) {
     const hostMatch = line.match(/^([\w.-]+\.com)$/);
     if (hostMatch) {
       currentHost = hostMatch[1];
       continue;
     }
 
-    if (currentHost !== 'github.com') {
+    if (currentHost !== "github.com") {
       continue;
     }
 
-    const loginMatch = line.match(/Logged in to github\.com account\s+([^\s]+)\s+\(/);
+    const loginMatch = line.match(
+      /Logged in to github\.com account\s+([^\s]+)\s+\(/,
+    );
     if (loginMatch) {
       candidates.push({
         login: loginMatch[1],
@@ -42,7 +44,7 @@ export async function listGhOwnerCandidates(): Promise<GhOwnerCandidate[]> {
       continue;
     }
 
-    if (candidates.length > 0 && line.includes('Active account: true')) {
+    if (candidates.length > 0 && line.includes("Active account: true")) {
       candidates[candidates.length - 1].active = true;
     }
   }
@@ -50,15 +52,18 @@ export async function listGhOwnerCandidates(): Promise<GhOwnerCandidate[]> {
   return candidates;
 }
 
-export async function listGhRepositories(owner: string, limit = 100): Promise<GhRepositoryCandidate[]> {
-  const { stdout } = await execFileAsync('gh', [
-    'repo',
-    'list',
+export async function listGhRepositories(
+  owner: string,
+  limit = 100,
+): Promise<GhRepositoryCandidate[]> {
+  const { stdout } = await execFileAsync("gh", [
+    "repo",
+    "list",
     owner,
-    '--limit',
+    "--limit",
     String(limit),
-    '--json',
-    'name,nameWithOwner,isPrivate,url,owner',
+    "--json",
+    "name,nameWithOwner,isPrivate,url,owner",
   ]);
 
   const payload = JSON.parse(stdout) as {
@@ -70,7 +75,7 @@ export async function listGhRepositories(owner: string, limit = 100): Promise<Gh
   }[];
 
   return payload.map((repo) => ({
-    provider: 'github.com',
+    provider: "github.com",
     owner: repo.owner?.login ?? owner,
     name: repo.name,
     nameWithOwner: repo.nameWithOwner,
@@ -98,7 +103,11 @@ export async function resolveOwner(
   }
 
   if (!interactive) {
-    return candidates.find((candidate) => candidate.active)?.login ?? candidates[0]?.login ?? null;
+    return (
+      candidates.find((candidate) => candidate.active)?.login ??
+      candidates[0]?.login ??
+      null
+    );
   }
 
   return {

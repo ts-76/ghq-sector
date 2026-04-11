@@ -1,7 +1,7 @@
-import { loadConfig } from '../config/load-config.js';
-import { copyConfigToWorkspace } from '../config/copy-config-to-workspace.js';
-import { ensureRepos } from '../ghq/ensure-repos.js';
-import { runSync } from './sync.js';
+import { copyConfigToWorkspace } from "../config/copy-config-to-workspace.js";
+import { loadConfig } from "../config/load-config.js";
+import { ensureRepos } from "../ghq/ensure-repos.js";
+import { runSync } from "./sync.js";
 
 export interface ApplyResult {
   configPath: string;
@@ -19,7 +19,10 @@ export async function runApply(cwd = process.cwd()): Promise<ApplyResult> {
   const loaded = await loadConfig(cwd);
   const ensuredRepos = await ensureRepos(loaded.config);
   const syncResult = await runSync(cwd);
-  const copiedConfigPath = await copyConfigToWorkspace(loaded.path, loaded.config);
+  const copiedConfigPath = await copyConfigToWorkspace(
+    loaded.path,
+    loaded.config,
+  );
 
   return {
     ...syncResult,

@@ -1,192 +1,183 @@
 # ghq-sector
 
-`ghq` で管理している repository 群を、カテゴリ分けした workspace に symlink しつつ `.code-workspace` や補助 resource も生成する CLI です。
+Organize `ghq`-managed repositories into category-based workspaces with symlinks, a generated VS Code `.code-workspace` file, and a local config editor.
 
-スタンドアロン package として `~/workspace/personal/ghq-sector` に分離済みです。
-
-現状は **CLI + Svelte 製 config editor (`gsec edit`)** が利用でき、基本フローは **Save config / Apply workspace** に整理されています。
+**Language:** English | [日本語](./docs/README.ja.md)
 
 ## Requirements
 
-- `bun`
+- Node.js 20+
 - `ghq`
 - `gh`
 
-## Local usage
+## Install
+
+Run without installing:
 
 ```bash
-cd ~/workspace/personal/ghq-sector
-bun install
-bun run cli --help
+npx ghq-sector init
+bunx ghq-sector init
 ```
 
-## Commands
-
-### init
-
-設定ファイルと workspace template を初期化します。
+Install globally:
 
 ```bash
-gsec init
-gsec init --yes --format yaml
+npm install -g ghq-sector
+gsec --help
 ```
 
-主な動作:
-- `ghq-sector.config.json` or `.yaml` を生成
-- `workspace-template/` を生成
-- `workspaceRoot` 配下の category directory を生成
-- resource copy / code-workspace generation / global `afterInit` hook 実行
-- 対話モードでは最後に editor を開くか確認
+## Quick start
 
-### sync
-
-config をもとに symlink / resources / `.code-workspace` を再生成します。
+Create a config file and workspace template in the current directory:
 
 ```bash
+gsec init --yes
+```
+
+Add a repository and sync the workspace:
+
+```bash
+gsec clone owner/repo
 gsec sync
 ```
 
-### clone
-
-`ghq get` して config に repo を追加し、そのまま sync まで行います。
-
-```bash
-gsec clone ts-76/life
-gsec clone life --owner ts-76 --category projects
-```
-
-対応形式:
-- `provider/owner/name`
-- `owner/name`
-- `name` + `defaults.owner` または `--owner`
-
-clone まわりの hook は repo 個別ではなく global hooks に集約されています。
-- `hooks.beforeClone`
-- `hooks.afterClone`
-- `hooks.afterLink`
-- `hooks.afterSync`
-
-### doctor
-
-環境と config の整合性を確認します。
+Check environment and config health:
 
 ```bash
 gsec doctor
 ```
 
-確認対象:
-- `ghq` / `gh`
-- config 妥当性
-- defaults (`provider`, `owner`, `category`)
-- `repo.category ∈ categories` の整合性
-- resources source/target
-- workspace が存在する場合のみ `.code-workspace` と各 repo の source / symlink 状態
-
-### edit
-
-ローカル UI を起動して config を視覚編集します。
+Open the local editor:
 
 ```bash
 gsec edit
-gsec edit --config ../../ghq-sector.config.json --no-open
 ```
 
-機能:
-- visual / raw tab
-- schema-aware editing via `@visual-json/svelte`
-- Save config
-- Apply workspace (`ghq get` for missing repos + symlink sync + resources + `.code-workspace` + config copy)
-- workspace preview (`ready` / `will fetch via ghq get`)
-- Doctor refresh
-- repo preset insertion from `gh` repository list when available
-- repo entry は provider / owner / name / category の最小構造に統一
-- hook 設定は global hooks に集約
-- default categories は `projects` / `tools` / `docs`
+## What it creates
 
-## Build
+- `ghq-ws.config.json` or `ghq-ws.config.yaml`
+- `workspace-template/`
+- category directories under `workspaceRoot`
+- symlinks to repositories managed by `ghq`
+- a VS Code `.code-workspace` file
 
-### Typecheck
+Default categories:
+
+- `projects`
+- `tools`
+- `docs`
+
+## Commands
+
+### `gsec init`
+
+Create a config file, workspace template, and category directories.
 
 ```bash
-bun run typecheck
+gsec init
+gsec init --format yaml
+gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 ```
 
-### Tests
+Options:
+
+- `--ghq-root <path>`: set the `ghq` root directory
+- `--workspace-root <path>`: set the generated workspace root
+- `--format <json|yaml>`: choose the config format
+- `--yes`: skip prompts and use defaults
+
+### `gsec sync`
+
+Regenerate symlinks, copied resources, and the `.code-workspace` file from the current config.
 
 ```bash
-bun test
+gsec sync
 ```
 
-現在の自動テストは以下をカバーします。
+### `gsec clone`
 
-**unit / mock で保証する範囲**
-- config の cross-field validation (`repo.category ∈ categories`)
-- template の default categories
-- workspace preview / plan の `ready` / `fetch` 判定
-- `runApply` の fetched / alreadyPresent / sync / config copy 集約結果
-- `ensureRepos` の missing repo のみ `ghq get` 実行
-- `ensureRepos` の `ghq get` failure 伝播
-- hook 実行順序 (`beforeClone -> ghq get -> afterClone`)
-- `runApply` が ensure 失敗時に sync / config copy へ進まないこと
-- clone の repository 形式解釈 (`provider/owner/name`, `owner/name`, shorthand name + owner resolution)
-- clone 時の config upsert
-- shorthand clone で owner 未解決時の失敗
-- doctor の `ghq` / `gh` 不在時エラー
-- doctor の workspace 未作成時スキップ / source missing / workspace 存在時の code-workspace・symlink 診断
-
-**lightweight integration で保証する範囲**
-- `.code-workspace` 生成
-- resource copy と config copy
-- apply 実行後の workspace 整合性
-  - already present repo は再 fetch されない
-  - missing repo は `ghq get` 対象になる
-  - symlink / `.code-workspace` / copied resource が期待どおり作られる
-
-**あえて保証しない範囲**
-- `git` / `ghq` / `gh` 自体の内部挙動
-- 実ネットワーク越しの GitHub clone 成功可否
-- `ghq get` の詳細な取得ロジック
-
-### UI build
+Clone a repository with `ghq`, add it to the config, and sync the workspace.
 
 ```bash
-bun run build-ui
+gsec clone owner/repo
+gsec clone repo --owner owner --category projects
+gsec clone github.com/owner/repo --provider github.com
 ```
 
-### Standalone binary
+Accepted repository formats:
+
+- `provider/owner/name`
+- `owner/name`
+- `name` with `--owner` or `defaults.owner`
+
+Options:
+
+- `--category <name>`: assign the repo to a category
+- `--owner <name>`: override the owner for shorthand repo names
+- `--provider <name>`: override the provider for shorthand repo names
+- `--yes`: skip owner selection and use the active/default account when possible
+
+### `gsec doctor`
+
+Validate environment setup and config consistency.
 
 ```bash
-bun run build-bin
+gsec doctor
 ```
 
-出力先:
+Checks include:
+
+- `ghq` and `gh` availability
+- config validity
+- category references in repositories
+- workspace resources and generated files
+- symlink and source-path health for an existing workspace
+
+### `gsec edit`
+
+Start the local config editor UI.
 
 ```bash
-dist/cli/main.mjs
+gsec edit
+gsec edit --config ./ghq-ws.config.json --no-open
+gsec edit --host 0.0.0.0 --port 4173
 ```
 
-### All-in-one build
+Options:
 
-```bash
-bun run build
-```
+- `--config <path>`: config file path or a directory containing the config
+- `--host <host>`: host to bind the editor server to
+- `--port <port>`: port to bind the editor server to
+- `--no-open`: do not open a browser automatically
 
-`build` は UI build の後に tsdown で CLI を生成します。
+The editor includes:
 
-## UI dependency note
+- visual and raw config editing
+- schema-aware validation
+- workspace preview before apply
+- save and apply actions
+- doctor refresh
+- repository suggestions from `gh` when available
 
-UI は npm 公開版の `@visual-json/svelte` を参照しています。
-vendor tarball 前提は不要になりました。
+## Config file
 
-## Thin wrapper
+`gsec init` creates `ghq-ws.config.json` by default.
+Use `--format yaml` to create `ghq-ws.config.yaml` instead.
 
-`life/scripts/setup-workspace.sh` は workspace 生成本体を持たず、`gsec init --yes` / `gsec sync` を呼ぶ thin wrapper です。
+Typical config fields:
 
-## Recommended next steps
+- `ghqRoot`
+- `workspaceRoot`
+- `categories`
+- `defaults`
+- `repos`
+- `resources`
+- `hooks`
 
-現時点では MVP は成立しています。次にやるなら以下が有力です。
+## Support
 
-- doctor の責務をさらに絞る
-- code-workspace settings / extensions / tasks の拡張
-- 自動テスト追加
-- build / release フローの整備
+If you run into a problem or want to request a feature, open an issue on GitHub.
+
+## License
+
+MIT

@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import YAML from 'yaml';
-import { DEFAULT_CONFIG_BASENAME } from '../shared/constants.js';
-import type { GhqWsConfig } from './schema.js';
-import { parseConfig } from './validate-config.js';
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import YAML from "yaml";
+import { DEFAULT_CONFIG_BASENAME } from "../shared/constants.js";
+import type { GhqWsConfig } from "./schema.js";
+import { parseConfig } from "./validate-config.js";
 
 const CONFIG_CANDIDATES = [
   `${DEFAULT_CONFIG_BASENAME}.json`,
@@ -21,12 +21,14 @@ export async function loadConfig(cwd = process.cwd()): Promise<LoadedConfig> {
     const configPath = path.join(cwd, candidate);
 
     try {
-      const raw = await readFile(configPath, 'utf8');
-      const parsed = candidate.endsWith('.json') ? JSON.parse(raw) : YAML.parse(raw);
+      const raw = await readFile(configPath, "utf8");
+      const parsed = candidate.endsWith(".json")
+        ? JSON.parse(raw)
+        : YAML.parse(raw);
       const config = parseConfig(parsed);
       return { path: configPath, config };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         continue;
       }
 
@@ -38,5 +40,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<LoadedConfig> {
     }
   }
 
-  throw new Error(`config file not found. expected one of: ${CONFIG_CANDIDATES.join(', ')}`);
+  throw new Error(
+    `config file not found. expected one of: ${CONFIG_CANDIDATES.join(", ")}`,
+  );
 }

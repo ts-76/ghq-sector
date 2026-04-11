@@ -1,4 +1,4 @@
-import * as v from 'valibot';
+import * as v from "valibot";
 
 export const hookListSchema = v.array(v.string());
 

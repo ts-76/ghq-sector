@@ -1,16 +1,21 @@
-import { access } from 'node:fs/promises';
-import type { GhqWsConfig, GhqWsRepoConfig } from '../config/schema.js';
-import { runHooks } from '../hooks/run-hooks.js';
-import { expandHome } from '../shared/paths.js';
-import { getRepoDestinationPath, getRepoSourcePath } from '../shared/repo-paths.js';
-import { ghqGet } from './ghq-get.js';
+import { access } from "node:fs/promises";
+import type { GhqWsConfig, GhqWsRepoConfig } from "../config/schema.js";
+import { runHooks } from "../hooks/run-hooks.js";
+import { expandHome } from "../shared/paths.js";
+import {
+  getRepoDestinationPath,
+  getRepoSourcePath,
+} from "../shared/repo-paths.js";
+import { ghqGet } from "./ghq-get.js";
 
 export interface EnsureReposResult {
   fetched: string[];
   alreadyPresent: string[];
 }
 
-export async function ensureRepos(config: GhqWsConfig): Promise<EnsureReposResult> {
+export async function ensureRepos(
+  config: GhqWsConfig,
+): Promise<EnsureReposResult> {
   const ghqRoot = expandHome(config.ghqRoot);
   const workspaceRoot = expandHome(config.workspaceRoot);
   const fetched: string[] = [];
@@ -24,7 +29,6 @@ export async function ensureRepos(config: GhqWsConfig): Promise<EnsureReposResul
     try {
       await access(ghqPath);
       alreadyPresent.push(repositoryPath);
-      continue;
     } catch {
       await runHooks(config.hooks?.beforeClone, {
         provider: repo.provider,

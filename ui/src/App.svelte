@@ -1,546 +1,531 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { ChevronRight, Save, Stethoscope, RotateCcw, Plus, FolderGit2, CheckCheck } from 'lucide-svelte';
-  import { JsonEditor, type JsonSchema, type JsonValue } from '@visual-json/svelte';
+import {
+  JsonEditor,
+  type JsonSchema,
+  type JsonValue,
+} from "@visual-json/svelte";
+import {
+  CheckCheck,
+  ChevronRight,
+  FolderGit2,
+  Plus,
+  RotateCcw,
+  Save,
+  Stethoscope,
+} from "lucide-svelte";
+import { onMount } from "svelte";
 
-  type ConfigFormat = 'json' | 'yaml';
-  type EditorTab = 'visual' | 'raw';
+type ConfigFormat = "json" | "yaml";
+type EditorTab = "visual" | "raw";
 
-  interface PreviewResult {
-    ghqRoot: string;
-    workspaceRoot: string;
-    repoLinks: {
-      provider: string;
-      owner: string;
-      name: string;
-      category: string;
-      ghqPath: string;
-      workspacePath: string;
-      available: boolean;
-      status: 'ready' | 'fetch';
-    }[];
-    resources: {
-      from: string;
-      to: string;
-      mode?: string;
-    }[];
-    codeWorkspace: {
-      enabled: boolean;
-      path: string | null;
-      folders: { path: string }[];
-    };
-    summary: {
-      totalRepos: number;
-      linkableRepos: number;
-      missingRepos: number;
-      resourcesCount: number;
-    };
-  }
+interface PreviewResult {
+  ghqRoot: string;
+  workspaceRoot: string;
+  repoLinks: {
+    provider: string;
+    owner: string;
+    name: string;
+    category: string;
+    ghqPath: string;
+    workspacePath: string;
+    available: boolean;
+    status: "ready" | "fetch";
+  }[];
+  resources: {
+    from: string;
+    to: string;
+    mode?: string;
+  }[];
+  codeWorkspace: {
+    enabled: boolean;
+    path: string | null;
+    folders: { path: string }[];
+  };
+  summary: {
+    totalRepos: number;
+    linkableRepos: number;
+    missingRepos: number;
+    resourcesCount: number;
+  };
+}
 
-  interface ApplyResult {
-    configPath: string;
-    workspaceRoot: string;
-    linkedCount: number;
-    skippedCount: number;
-    copiedResourcesCount: number;
-    codeWorkspacePath: string | null;
-    copiedConfigPath: string;
-    fetchedRepos: string[];
-    alreadyPresentRepos: string[];
-  }
+interface ApplyResult {
+  configPath: string;
+  workspaceRoot: string;
+  linkedCount: number;
+  skippedCount: number;
+  copiedResourcesCount: number;
+  codeWorkspacePath: string | null;
+  copiedConfigPath: string;
+  fetchedRepos: string[];
+  alreadyPresentRepos: string[];
+}
 
-  interface DoctorCheck {
-    level: 'success' | 'info' | 'warn';
-    scope: string;
-    message: string;
-  }
+interface DoctorCheck {
+  level: "success" | "info" | "warn";
+  scope: string;
+  message: string;
+}
 
-  interface DoctorResult {
-    ok: boolean;
-    configPath: string;
-    checks: DoctorCheck[];
-    summary: {
-      successCount: number;
-      infoCount: number;
-      warnCount: number;
-    };
-    ghqRoot: string;
-    workspaceRoot: string;
-    defaults: {
-      provider: string | null;
-      owner: string | null;
-      category: string | null;
-    };
-    accounts: {
-      login: string;
-      active: boolean;
-    }[];
-  }
-
-  interface GhAccount {
+interface DoctorResult {
+  ok: boolean;
+  configPath: string;
+  checks: DoctorCheck[];
+  summary: {
+    successCount: number;
+    infoCount: number;
+    warnCount: number;
+  };
+  ghqRoot: string;
+  workspaceRoot: string;
+  defaults: {
+    provider: string | null;
+    owner: string | null;
+    category: string | null;
+  };
+  accounts: {
     login: string;
     active: boolean;
+  }[];
+}
+
+interface GhAccount {
+  login: string;
+  active: boolean;
+}
+
+interface GhRepositoryCandidate {
+  provider: string;
+  owner: string;
+  name: string;
+  nameWithOwner: string;
+  url: string;
+  isPrivate: boolean;
+}
+
+interface GhReposPayload {
+  available: boolean;
+  owner?: string;
+  accounts: GhAccount[];
+  repositories: GhRepositoryCandidate[];
+}
+
+type RepoPreview = {
+  provider: string;
+  owner: string;
+  name: string;
+  nameWithOwner: string;
+  url: string;
+  isPrivate: boolean;
+  category: string;
+} | null;
+
+let schema = $state<JsonSchema | null>(null);
+let value = $state<JsonValue>({});
+let configPath = $state("");
+let format = $state<ConfigFormat>("json");
+let loading = $state(true);
+let saving = $state(false);
+let previewLoading = $state(false);
+let applying = $state(false);
+let doctorLoading = $state(false);
+let addingRepo = $state(false);
+let ghReposLoading = $state(false);
+let errorMessage = $state("");
+let successMessage = $state("");
+let previewResult = $state<PreviewResult | null>(null);
+let applyResult = $state<ApplyResult | null>(null);
+let doctorResult = $state<DoctorResult | null>(null);
+let rawValue = $state("");
+let currentTab = $state<EditorTab>("visual");
+let originalSnapshot = $state("");
+let unsavedChanges = $derived(serializeCurrentValue() !== originalSnapshot);
+let ghRepos = $state<GhRepositoryCandidate[]>([]);
+let ghAccounts = $state<GhAccount[]>([]);
+let ghAvailable = $state(false);
+let ghSelectedOwner = $state("");
+let ghSelectedRepo = $state("");
+let ghSelectedCategory = $state("");
+let ghRepoFilter = $state("");
+let selectedRepoPreview = $derived(getSelectedRepoPreview());
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+function extractCategories(
+  source: JsonValue | Record<string, unknown> | null | undefined,
+) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return [] as string[];
   }
 
-  interface GhRepositoryCandidate {
-    provider: string;
-    owner: string;
-    name: string;
-    nameWithOwner: string;
-    url: string;
-    isPrivate: boolean;
-  }
+  const rawCategories = (source as { categories?: unknown }).categories;
+  return Array.isArray(rawCategories)
+    ? rawCategories.filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
+    : [];
+}
 
-  interface GhReposPayload {
-    available: boolean;
-    owner?: string;
-    accounts: GhAccount[];
-    repositories: GhRepositoryCandidate[];
-  }
-
-  type RepoPreview = {
-    provider: string;
-    owner: string;
-    name: string;
-    nameWithOwner: string;
-    url: string;
-    isPrivate: boolean;
-    category: string;
-  } | null;
-
-  let schema = $state<JsonSchema | null>(null);
-  let value = $state<JsonValue>({});
-  let configPath = $state('');
-  let format = $state<ConfigFormat>('json');
-  let loading = $state(true);
-  let saving = $state(false);
-  let previewLoading = $state(false);
-  let applying = $state(false);
-  let doctorLoading = $state(false);
-  let addingRepo = $state(false);
-  let ghReposLoading = $state(false);
-  let errorMessage = $state('');
-  let successMessage = $state('');
-  let previewResult = $state<PreviewResult | null>(null);
-  let applyResult = $state<ApplyResult | null>(null);
-  let doctorResult = $state<DoctorResult | null>(null);
-  let rawValue = $state('');
-  let currentTab = $state<EditorTab>('visual');
-  let originalSnapshot = $state('');
-  let unsavedChanges = $derived(serializeCurrentValue() !== originalSnapshot);
-  let ghRepos = $state<GhRepositoryCandidate[]>([]);
-  let ghAccounts = $state<GhAccount[]>([]);
-  let ghAvailable = $state(false);
-  let ghSelectedOwner = $state('');
-  let ghSelectedRepo = $state('');
-  let ghSelectedCategory = $state('');
-  let ghRepoFilter = $state('');
-  let selectedRepoPreview = $derived(getSelectedRepoPreview());
-  let previewTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function extractCategories(source: JsonValue | Record<string, unknown> | null | undefined) {
-    if (!source || typeof source !== 'object' || Array.isArray(source)) {
-      return [] as string[];
+function getCurrentCategories() {
+  if (currentTab === "raw") {
+    try {
+      const parsed = parseRawValue();
+      return extractCategories(parsed as JsonValue);
+    } catch {
+      return extractCategories(value);
     }
-
-    const rawCategories = (source as { categories?: unknown }).categories;
-    return Array.isArray(rawCategories)
-      ? rawCategories.filter((item): item is string => typeof item === 'string' && item.length > 0)
-      : [];
   }
 
-  function getCurrentCategories() {
-    if (currentTab === 'raw') {
-      try {
-        const parsed = parseRawValue();
-        return extractCategories(parsed as JsonValue);
-      } catch {
-        return extractCategories(value);
-      }
-    }
+  return extractCategories(value);
+}
 
-    return extractCategories(value);
+const categories = $derived(getCurrentCategories());
+const filteredGhRepos = $derived.by(() => {
+  const query = ghRepoFilter.trim().toLowerCase();
+  if (!query) {
+    return ghRepos;
   }
 
-  const categories = $derived(getCurrentCategories());
-  const filteredGhRepos = $derived.by(() => {
-    const query = ghRepoFilter.trim().toLowerCase();
-    if (!query) {
-      return ghRepos;
-    }
-
-    return ghRepos.filter((repo) => {
-      return (
-        repo.nameWithOwner.toLowerCase().includes(query) ||
-        repo.name.toLowerCase().includes(query) ||
-        repo.owner.toLowerCase().includes(query)
-      );
-    });
+  return ghRepos.filter((repo) => {
+    return (
+      repo.nameWithOwner.toLowerCase().includes(query) ||
+      repo.name.toLowerCase().includes(query) ||
+      repo.owner.toLowerCase().includes(query)
+    );
   });
+});
 
-  onMount(async () => {
+onMount(async () => {
+  await load();
+  await loadDoctor();
+  await loadGhRepos();
+  await previewWorkspace({ silent: true });
+});
+
+$effect(() => {
+  if (loading || saving || applying || addingRepo) {
+    return;
+  }
+
+  const snapshot = serializeCurrentValue();
+  if (!snapshot) {
+    return;
+  }
+
+  if (currentTab === "raw") {
+    try {
+      parseRawValue();
+    } catch {
+      return;
+    }
+  }
+
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+  }
+
+  previewTimer = setTimeout(() => {
+    void previewWorkspace({ silent: true });
+  }, 250);
+
+  return () => {
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+  };
+});
+
+function serializeConfig(source: JsonValue) {
+  return JSON.stringify(source, null, 2);
+}
+
+function serializeCurrentValue() {
+  if (currentTab === "raw") {
+    try {
+      return serializeConfig(parseRawValue() as JsonValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return serializeConfig(value);
+}
+
+function getCurrentPayload() {
+  return (currentTab === "raw" ? parseRawValue() : value) as JsonValue;
+}
+
+function getConfigObject() {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function getRepoTemplate() {
+  const config = getConfigObject();
+  const defaults =
+    config.defaults && typeof config.defaults === "object"
+      ? (config.defaults as Record<string, unknown>)
+      : {};
+  return {
+    provider:
+      typeof defaults.provider === "string" && defaults.provider
+        ? defaults.provider
+        : "github.com",
+    owner: typeof defaults.owner === "string" ? defaults.owner : "",
+    name: "",
+    category:
+      typeof defaults.category === "string" && defaults.category
+        ? defaults.category
+        : (categories[0] ?? ""),
+  };
+}
+
+function getSelectedRepoPreview(): RepoPreview {
+  const selected = ghRepos.find(
+    (repo) => repo.nameWithOwner === ghSelectedRepo,
+  );
+  if (!selected) {
+    return null;
+  }
+
+  return {
+    ...selected,
+    category: ghSelectedCategory || getRepoTemplate().category,
+  };
+}
+
+async function load() {
+  loading = true;
+  errorMessage = "";
+
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const payload = await response.json();
+    schema = payload.schema ?? null;
+    value = payload.value;
+    configPath = payload.path;
+    format = payload.format;
+    rawValue = payload.raw;
+    originalSnapshot = serializeConfig(payload.value as JsonValue);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to load config";
+  } finally {
+    loading = false;
+  }
+}
+
+async function reload() {
+  successMessage = "";
+  await load();
+  await loadDoctor();
+  await loadGhRepos();
+  await previewWorkspace();
+  successMessage = `reloaded ${configPath}`;
+}
+
+async function save() {
+  saving = true;
+  successMessage = "";
+  errorMessage = "";
+
+  try {
+    const payload = currentTab === "raw" ? parseRawValue() : value;
+    const response = await fetch("/api/config", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    await load();
+    await loadGhRepos();
+    await previewWorkspace({ silent: true });
+    successMessage = `saved ${configPath}`;
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to save config";
+  } finally {
+    saving = false;
+  }
+}
+
+async function previewWorkspace(options?: { silent?: boolean }) {
+  previewLoading = true;
+  if (!options?.silent) {
+    successMessage = "";
+    errorMessage = "";
+  }
+
+  try {
+    const response = await fetch("/api/preview", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(getCurrentPayload()),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const payload = await response.json();
+    previewResult = payload.result ?? null;
+    if (!options?.silent) {
+      successMessage = "workspace plan updated";
+    }
+  } catch (error) {
+    if (!options?.silent) {
+      errorMessage =
+        error instanceof Error ? error.message : "failed to preview workspace";
+    }
+  } finally {
+    previewLoading = false;
+  }
+}
+
+async function applyWorkspace() {
+  applying = true;
+  successMessage = "";
+  errorMessage = "";
+
+  try {
+    const response = await fetch("/api/apply", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(getCurrentPayload()),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const payload = await response.json();
+    applyResult = (payload.result ?? null) as ApplyResult | null;
     await load();
     await loadDoctor();
     await loadGhRepos();
     await previewWorkspace({ silent: true });
-  });
+    if (applyResult) {
+      successMessage = `applied workspace / fetched ${applyResult.fetchedRepos.length} / linked ${applyResult.linkedCount} / copied config`;
+    } else {
+      successMessage = payload.message ?? `applied ${configPath}`;
+    }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to apply workspace";
+  } finally {
+    applying = false;
+  }
+}
 
-  $effect(() => {
-    if (loading || saving || applying || addingRepo) {
-      return;
+async function loadDoctor() {
+  doctorLoading = true;
+
+  try {
+    const response = await fetch("/api/doctor");
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    doctorResult = payload.result ?? null;
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to load doctor result";
+  } finally {
+    doctorLoading = false;
+  }
+}
+
+async function addRepoTemplate() {
+  addingRepo = true;
+  successMessage = "";
+  errorMessage = "";
+
+  try {
+    const response = await fetch("/api/repos", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        repo: getRepoTemplate(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
 
-    const snapshot = serializeCurrentValue();
-    if (!snapshot) {
-      return;
-    }
-
-    if (currentTab === 'raw') {
-      try {
-        parseRawValue();
-      } catch {
-        return;
-      }
-    }
-
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-    }
-
-    previewTimer = setTimeout(() => {
-      void previewWorkspace({ silent: true });
-    }, 250);
-
-    return () => {
-      if (previewTimer) {
-        clearTimeout(previewTimer);
-        previewTimer = null;
-      }
-    };
-  });
-
-  function serializeConfig(source: JsonValue) {
-    return JSON.stringify(source, null, 2);
-  }
-
-  function serializeCurrentValue() {
-    if (currentTab === 'raw') {
-      try {
-        return serializeConfig(parseRawValue() as JsonValue);
-      } catch {
-        return rawValue;
-      }
-    }
-
-    return serializeConfig(value);
-  }
-
-  function getCurrentPayload() {
-    return (currentTab === 'raw' ? parseRawValue() : value) as JsonValue;
-  }
-
-  function getConfigObject() {
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-  }
-
-  function getRepoTemplate() {
-    const config = getConfigObject();
-    const defaults = config.defaults && typeof config.defaults === 'object' ? (config.defaults as Record<string, unknown>) : {};
-    return {
-      provider: typeof defaults.provider === 'string' && defaults.provider ? defaults.provider : 'github.com',
-      owner: typeof defaults.owner === 'string' ? defaults.owner : '',
-      name: '',
-      category:
-        typeof defaults.category === 'string' && defaults.category
-          ? defaults.category
-          : categories[0] ?? '',
-    };
-  }
-
-  function getSelectedRepoPreview(): RepoPreview {
-    const selected = ghRepos.find((repo) => repo.nameWithOwner === ghSelectedRepo);
-    if (!selected) {
-      return null;
-    }
-
-    return {
-      ...selected,
-      category: ghSelectedCategory || getRepoTemplate().category,
-    };
-  }
-
-  async function load() {
-    loading = true;
-    errorMessage = '';
-
-    try {
-      const response = await fetch('/api/config');
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = await response.json();
-      schema = payload.schema ?? null;
-      value = payload.value;
-      configPath = payload.path;
-      format = payload.format;
-      rawValue = payload.raw;
-      originalSnapshot = serializeConfig(payload.value as JsonValue);
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to load config';
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function reload() {
-    successMessage = '';
     await load();
-    await loadDoctor();
-    await loadGhRepos();
     await previewWorkspace();
-    successMessage = `reloaded ${configPath}`;
+    successMessage = "added repo template";
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to add repo template";
+  } finally {
+    addingRepo = false;
+  }
+}
+
+async function loadGhRepos(ownerOverride?: string) {
+  ghReposLoading = true;
+  ghSelectedRepo = "";
+  ghRepoFilter = "";
+
+  try {
+    const owner = ownerOverride ?? ghSelectedOwner;
+    const search = owner ? `?owner=${encodeURIComponent(owner)}` : "";
+    const response = await fetch(`/api/gh/repos${search}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const payload = (await response.json()) as GhReposPayload;
+    ghAvailable = payload.available;
+    ghAccounts = payload.accounts ?? [];
+    ghRepos = payload.repositories ?? [];
+    ghSelectedOwner = payload.owner ?? owner ?? "";
+    ghSelectedRepo = "";
+    ghSelectedCategory = ghSelectedCategory || categories[0] || "";
+  } catch (error) {
+    ghAvailable = false;
+    ghAccounts = [];
+    ghRepos = [];
+    ghSelectedRepo = "";
+    ghSelectedCategory = ghSelectedCategory || categories[0] || "";
+    errorMessage =
+      error instanceof Error ? error.message : "failed to load gh repositories";
+  } finally {
+    ghReposLoading = false;
+  }
+}
+
+function parseRawValue() {
+  if (format === "json") {
+    return JSON.parse(rawValue);
   }
 
-  async function save() {
-    saving = true;
-    successMessage = '';
-    errorMessage = '';
-
-    try {
-      const payload = currentTab === 'raw' ? parseRawValue() : value;
-      const response = await fetch('/api/config', {
-        method: 'PUT',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      await load();
-      await loadGhRepos();
-      await previewWorkspace({ silent: true });
-      successMessage = `saved ${configPath}`;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to save config';
-    } finally {
-      saving = false;
-    }
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return {};
   }
 
-  async function previewWorkspace(options?: { silent?: boolean }) {
-    previewLoading = true;
-    if (!options?.silent) {
-      successMessage = '';
-      errorMessage = '';
-    }
-
-    try {
-      const response = await fetch('/api/preview', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(getCurrentPayload()),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = await response.json();
-      previewResult = payload.result ?? null;
-      if (!options?.silent) {
-        successMessage = 'workspace plan updated';
-      }
-    } catch (error) {
-      if (!options?.silent) {
-        errorMessage = error instanceof Error ? error.message : 'failed to preview workspace';
-      }
-    } finally {
-      previewLoading = false;
-    }
-  }
-
-  async function applyWorkspace() {
-    applying = true;
-    successMessage = '';
-    errorMessage = '';
-
-    try {
-      const response = await fetch('/api/apply', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(getCurrentPayload()),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = await response.json();
-      applyResult = (payload.result ?? null) as ApplyResult | null;
-      await load();
-      await loadDoctor();
-      await loadGhRepos();
-      await previewWorkspace({ silent: true });
-      if (applyResult) {
-        successMessage = `applied workspace / fetched ${applyResult.fetchedRepos.length} / linked ${applyResult.linkedCount} / copied config`;
-      } else {
-        successMessage = payload.message ?? `applied ${configPath}`;
-      }
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to apply workspace';
-    } finally {
-      applying = false;
-    }
-  }
-
-  async function loadDoctor() {
-    doctorLoading = true;
-
-    try {
-      const response = await fetch('/api/doctor');
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      const payload = await response.json();
-      doctorResult = payload.result ?? null;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to load doctor result';
-    } finally {
-      doctorLoading = false;
-    }
-  }
-
-  async function addRepoTemplate() {
-    addingRepo = true;
-    successMessage = '';
-    errorMessage = '';
-
-    try {
-      const response = await fetch('/api/repos', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          repo: getRepoTemplate(),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      await load();
-      await previewWorkspace();
-      successMessage = 'added repo template';
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to add repo template';
-    } finally {
-      addingRepo = false;
-    }
-  }
-
-  async function loadGhRepos(ownerOverride?: string) {
-    ghReposLoading = true;
-    ghSelectedRepo = '';
-    ghRepoFilter = '';
-
-    try {
-      const owner = ownerOverride ?? ghSelectedOwner;
-      const search = owner ? `?owner=${encodeURIComponent(owner)}` : '';
-      const response = await fetch(`/api/gh/repos${search}`);
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = (await response.json()) as GhReposPayload;
-      ghAvailable = payload.available;
-      ghAccounts = payload.accounts ?? [];
-      ghRepos = payload.repositories ?? [];
-      ghSelectedOwner = payload.owner ?? owner ?? '';
-      ghSelectedRepo = '';
-      ghSelectedCategory = ghSelectedCategory || categories[0] || '';
-    } catch (error) {
-      ghAvailable = false;
-      ghAccounts = [];
-      ghRepos = [];
-      ghSelectedRepo = '';
-      ghSelectedCategory = ghSelectedCategory || categories[0] || '';
-      errorMessage = error instanceof Error ? error.message : 'failed to load gh repositories';
-    } finally {
-      ghReposLoading = false;
-    }
-  }
-
-  async function addSelectedGhRepo() {
-    const selectedPreview = getSelectedRepoPreview();
-    if (!selectedPreview) {
-      return;
-    }
-
-    const selected = ghRepos.find((repo) => repo.nameWithOwner === ghSelectedRepo);
-    if (!selected) {
-      return;
-    }
-
-    addingRepo = true;
-    successMessage = '';
-    errorMessage = '';
-
-    try {
-      const response = await fetch('/api/repos', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          repo: {
-            ...getRepoTemplate(),
-            provider: selected.provider,
-            owner: selected.owner,
-            name: selected.name,
-            category: ghSelectedCategory || getRepoTemplate().category,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      await load();
-      await previewWorkspace();
-      successMessage = `added ${selected.nameWithOwner}`;
-      ghSelectedRepo = '';
-      ghSelectedCategory = ghSelectedCategory || categories[0] || '';
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'failed to add github repository';
-    } finally {
-      addingRepo = false;
-    }
-  }
-
-  function parseRawValue() {
-    if (format === 'json') {
-      return JSON.parse(rawValue);
-    }
-
-    const trimmed = rawValue.trim();
-    if (!trimmed) {
-      return {};
-    }
-
-    return JSON.parse(JSON.stringify(value));
-  }
+  return JSON.parse(JSON.stringify(value));
+}
 </script>
 
 <main class="app">

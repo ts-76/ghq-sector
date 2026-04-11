@@ -3,26 +3,38 @@
   "version": "0.1.0",
   "description": "CLI for organizing ghq-managed repositories into a symlinked workspace with code-workspace generation and a local config editor.",
   "license": "MIT",
+  "author": "ts-76",
   "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ts-76/ghq-sector.git"
+  },
+  "homepage": "https://github.com/ts-76/ghq-sector#readme",
+  "bugs": {
+    "url": "https://github.com/ts-76/ghq-sector/issues"
+  },
   "bin": {
     "gsec": "./dist/cli/main.mjs",
     "ghq-sector": "./dist/cli/main.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "cli": "tsx src/cli/main.ts",
+    "lint": "bunx @biomejs/biome ci .",
     "test": "vitest run --maxWorkers 1",
     "typecheck": "tsc --noEmit",
     "build-ui": "bun install --cwd ui && bun run --cwd ui build",
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
     "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
-    "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin"
+    "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin",
+    "audit": "bun audit --audit-level=moderate"
   },
   "keywords": [
     "ghq",
@@ -36,6 +48,8 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.2.6",
+    "@socketsecurity/bun-security-scanner": "^1.1.2",
     "@types/node": "^24.5.0",
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",

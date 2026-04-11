@@ -1,7 +1,7 @@
-import path from 'node:path';
-import { chmod, copyFile, cp, mkdir } from 'node:fs/promises';
-import type { GhqWsConfig } from '../config/schema.js';
-import { expandHome } from '../shared/paths.js';
+import { chmod, copyFile, cp, mkdir } from "node:fs/promises";
+import path from "node:path";
+import type { GhqWsConfig } from "../config/schema.js";
+import { expandHome } from "../shared/paths.js";
 
 export async function copyResources(config: GhqWsConfig, cwd = process.cwd()) {
   const workspaceRoot = expandHome(config.workspaceRoot);
@@ -12,7 +12,7 @@ export async function copyResources(config: GhqWsConfig, cwd = process.cwd()) {
     const destinationPath = path.resolve(workspaceRoot, resource.to);
 
     await mkdir(path.dirname(destinationPath), { recursive: true });
-    const isDirectoryTarget = resource.to === '.' || resource.to.endsWith('/');
+    const isDirectoryTarget = resource.to === "." || resource.to.endsWith("/");
 
     try {
       if (isDirectoryTarget) {

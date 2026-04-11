@@ -1,17 +1,20 @@
-import { access } from 'node:fs/promises';
-import path from 'node:path';
-import type { GhqWsConfig, GhqWsRepoConfig } from '../config/schema.js';
-import { saveConfig } from '../config/save-config.js';
-import { ghqGet } from '../ghq/ghq-get.js';
-import { runHooks } from '../hooks/run-hooks.js';
-import { copyResources } from '../resources/copy-resources.js';
-import { resolveOwner } from '../shared/gh.js';
-import { info } from '../shared/logger.js';
-import { expandHome } from '../shared/paths.js';
-import { selectFromChoices } from '../shared/prompt.js';
-import { getRepoDestinationPath, getRepoSourcePath } from '../shared/repo-paths.js';
-import { generateCodeWorkspace } from '../workspace/generate-code-workspace.js';
-import { syncWorkspace } from '../workspace/sync-workspace.js';
+import { access } from "node:fs/promises";
+import path from "node:path";
+import { saveConfig } from "../config/save-config.js";
+import type { GhqWsConfig, GhqWsRepoConfig } from "../config/schema.js";
+import { ghqGet } from "../ghq/ghq-get.js";
+import { runHooks } from "../hooks/run-hooks.js";
+import { copyResources } from "../resources/copy-resources.js";
+import { resolveOwner } from "../shared/gh.js";
+import { info } from "../shared/logger.js";
+import { expandHome } from "../shared/paths.js";
+import { selectFromChoices } from "../shared/prompt.js";
+import {
+  getRepoDestinationPath,
+  getRepoSourcePath,
+} from "../shared/repo-paths.js";
+import { generateCodeWorkspace } from "../workspace/generate-code-workspace.js";
+import { syncWorkspace } from "../workspace/sync-workspace.js";
 
 export interface CloneOptions {
   repository: string;
@@ -33,7 +36,10 @@ export interface CloneResult {
   codeWorkspacePath: string | null;
 }
 
-export async function runClone(config: GhqWsConfig, options: CloneOptions): Promise<CloneResult> {
+export async function runClone(
+  config: GhqWsConfig,
+  options: CloneOptions,
+): Promise<CloneResult> {
   const repo = await parseRepository(options.repository, options, config);
   const ghqRoot = expandHome(config.ghqRoot);
   const workspaceRoot = expandHome(config.workspaceRoot);
@@ -73,7 +79,10 @@ export async function runClone(config: GhqWsConfig, options: CloneOptions): Prom
 
   await saveConfig(options.configPath, nextConfig);
   const syncResult = await syncWorkspace(nextConfig);
-  const copiedResources = await copyResources(nextConfig, path.dirname(options.configPath));
+  const copiedResources = await copyResources(
+    nextConfig,
+    path.dirname(options.configPath),
+  );
   const codeWorkspacePath = await generateCodeWorkspace(nextConfig);
 
   info(`cloned repository: ${repositoryPath}`);
@@ -94,9 +103,14 @@ export async function runClone(config: GhqWsConfig, options: CloneOptions): Prom
   };
 }
 
-async function parseRepository(repository: string, options: CloneOptions, config: GhqWsConfig): Promise<GhqWsRepoConfig> {
-  const parts = repository.split('/');
-  const provider = options.provider ?? config.defaults?.provider ?? 'github.com';
+async function parseRepository(
+  repository: string,
+  options: CloneOptions,
+  config: GhqWsConfig,
+): Promise<GhqWsRepoConfig> {
+  const parts = repository.split("/");
+  const provider =
+    options.provider ?? config.defaults?.provider ?? "github.com";
   const owner = await resolveCloneOwner(parts, options, config);
   const defaultCategory = config.defaults?.category;
   const category = resolveCategory(options.category, defaultCategory);
@@ -129,24 +143,38 @@ async function parseRepository(repository: string, options: CloneOptions, config
   }
 
   throw new Error(
-    'repository must be provider/owner/name, owner/name, or name with defaults.owner, --owner, or gh account selection',
+    "repository must be provider/owner/name, owner/name, or name with defaults.owner, --owner, or gh account selection",
   );
 }
 
-async function resolveCloneOwner(repositoryParts: string[], options: CloneOptions, config: GhqWsConfig) {
+async function resolveCloneOwner(
+  repositoryParts: string[],
+  options: CloneOptions,
+  config: GhqWsConfig,
+) {
   if (repositoryParts.length >= 2) {
     return options.owner ?? config.defaults?.owner;
   }
 
-  const resolved = await resolveOwner(options.owner, config.defaults?.owner, !options.yes);
-  if (typeof resolved === 'string' || resolved === null) {
+  const resolved = await resolveOwner(
+    options.owner,
+    config.defaults?.owner,
+    !options.yes,
+  );
+  if (typeof resolved === "string" || resolved === null) {
     return resolved;
   }
 
-  info('select owner for shorthand clone:');
+  info("select owner for shorthand clone:");
   const selection = await selectFromChoices(
-    'owner choice',
-    [...resolved.candidates.map((candidate) => `${candidate.login}${candidate.active ? ' (active)' : ''}`), 'cancel'],
+    "owner choice",
+    [
+      ...resolved.candidates.map(
+        (candidate) =>
+          `${candidate.login}${candidate.active ? " (active)" : ""}`,
+      ),
+      "cancel",
+    ],
     resolved.defaultIndex,
   );
 
@@ -157,7 +185,10 @@ async function resolveCloneOwner(repositoryParts: string[], options: CloneOption
   return resolved.candidates[selection.index].login;
 }
 
-function resolveCategory(category: string | undefined, defaultCategory: string | undefined) {
+function resolveCategory(
+  category: string | undefined,
+  defaultCategory: string | undefined,
+) {
   if (category) {
     return category;
   }
@@ -166,12 +197,17 @@ function resolveCategory(category: string | undefined, defaultCategory: string |
     return defaultCategory;
   }
 
-  throw new Error('--category is required unless defaults.category is set');
+  throw new Error("--category is required unless defaults.category is set");
 }
 
 function upsertRepo(repos: GhqWsRepoConfig[], nextRepo: GhqWsRepoConfig) {
   const filtered = repos.filter(
-    (repo) => !(repo.provider === nextRepo.provider && repo.owner === nextRepo.owner && repo.name === nextRepo.name),
+    (repo) =>
+      !(
+        repo.provider === nextRepo.provider &&
+        repo.owner === nextRepo.owner &&
+        repo.name === nextRepo.name
+      ),
   );
 
   return [...filtered, nextRepo];

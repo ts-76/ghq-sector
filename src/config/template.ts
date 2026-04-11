@@ -1,7 +1,11 @@
-import { DEFAULT_CATEGORIES } from '../shared/constants.js';
-import type { GhqWsConfig } from './schema.js';
+import { DEFAULT_CATEGORIES } from "../shared/constants.js";
+import type { GhqWsConfig } from "./schema.js";
 
-export function createConfigTemplate(ghqRoot: string, workspaceRoot: string, owner?: string): GhqWsConfig {
+export function createConfigTemplate(
+  ghqRoot: string,
+  workspaceRoot: string,
+  owner?: string,
+): GhqWsConfig {
   return {
     ghqRoot,
     workspaceRoot,
@@ -16,12 +20,12 @@ export function createConfigTemplate(ghqRoot: string, workspaceRoot: string, own
     },
     resources: [
       {
-        from: 'workspace-template',
-        to: '.',
+        from: "workspace-template",
+        to: ".",
       },
     ],
     defaults: {
-      provider: 'github.com',
+      provider: "github.com",
       owner,
       category: DEFAULT_CATEGORIES[0],
     },
