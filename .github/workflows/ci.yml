@@ -2,13 +2,7 @@ name: CI
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
-  pull_request_target:
     branches:
       - main
 
@@ -20,20 +14,12 @@ env:
 
 jobs:
   verify:
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        startsWith(github.event.pull_request.head.ref, 'release-please--branches--')
-      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

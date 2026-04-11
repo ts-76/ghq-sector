@@ -178,12 +178,12 @@ Typical config fields:
 
 Project maintenance is PR-only:
 
-1. Merge conventional-commit PRs into `main`
-2. Let Release Please open or update the release PR
-3. Wait for `verify`, `audit`, and `codeql (javascript-typescript)` to pass on that release PR
-4. Merge the release PR
-5. Let the Release workflow publish from the GitHub Release
+1. Open a pull request against `main`
+2. Wait for `verify`, `audit`, and `codeql (javascript-typescript)` to pass
+3. Merge the pull request
+4. Let the `Release` workflow create the GitHub Release and publish to npm from `main`
 
+Use conventional commits (`feat:`, `fix:`, etc.) so the release workflow can determine the next version automatically.
 Avoid direct pushes to `main` during normal operation.
 
 ## Support

@@ -34,7 +34,8 @@
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
     "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
     "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin",
-    "audit": "bun audit --audit-level=moderate"
+    "audit": "bun audit --audit-level=moderate",
+    "release": "semantic-release"
   },
   "keywords": [
     "ghq",
@@ -49,8 +50,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.6",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.0",
     "@socketsecurity/bun-security-scanner": "^1.1.2",
     "@types/node": "^24.5.0",
+    "semantic-release": "^25.0.3",
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
