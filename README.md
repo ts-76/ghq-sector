@@ -40,6 +40,15 @@ In other words, the value is not just “create symlinks once,” but “rebuild
 - `ghq`
 - `gh` for GitHub account-aware repo suggestions in the editor and shorthand owner flows
 
+## Windows note
+
+`ghq-sector` creates symlinks in the workspace. On Windows, creating symlinks may require either:
+
+- an elevated shell (Run as Administrator), or
+- Windows Developer Mode enabled
+
+If `gsec sync` or `gsec apply` fails with `EPERM: operation not permitted, symlink ...`, rerun the command from an elevated shell or enable Developer Mode first.
+
 ## Install
 
 Run without installing:
@@ -106,6 +115,15 @@ Default categories:
 - `projects`
 - `tools`
 - `docs`
+
+## Included skills
+
+This repository also includes reusable skills under `skills/` for AI agents and automation workflows.
+
+| Skill | Purpose | When to use |
+|---|---|---|
+| `ghq-sector-cli` | Guides an agent through the normal `gsec` / `ghq-sector` command flow. | Use when you want to set up, edit, clone, sync, doctor, or apply a ghq-sector workspace through the CLI. |
+| `ghq-sector-manual-workspace` | Explains how to build an equivalent categorized workspace manually without installing the CLI. | Use when an agent or user cannot install `ghq-sector` and needs mkdir/symlink/manual JSON instructions instead. |
 
 ## Commands
 
