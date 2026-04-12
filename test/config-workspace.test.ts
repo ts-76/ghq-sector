@@ -122,6 +122,29 @@ describe("portable path helpers", () => {
     });
   });
 
+  it("keeps already-portable tilde paths stable across repeated normalization", async () => {
+    const { normalizePortableConfig } = await import(
+      "../src/config/machine-paths.js"
+    );
+
+    const config = {
+      ...createConfig("/tmp/project"),
+      ghqRoot: "~/ghq",
+      workspaceRoot: "~/workspace/sub",
+    };
+
+    expect(normalizePortableConfig(config)).toMatchObject({
+      ghqRoot: "~/ghq",
+      workspaceRoot: "~/workspace/sub",
+    });
+    expect(
+      normalizePortableConfig(normalizePortableConfig(config)),
+    ).toMatchObject({
+      ghqRoot: "~/ghq",
+      workspaceRoot: "~/workspace/sub",
+    });
+  });
+
   it("remaps foreign home paths to the current machine and prefers detected ghq root", async () => {
     vi.doMock("../src/shared/ghq.js", () => ({
       getGhqRoot: vi.fn(async () => "/opt/ghq"),
