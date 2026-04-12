@@ -18,12 +18,7 @@ export function createConfigTemplate(
       afterLink: [],
       afterSync: [],
     },
-    resources: [
-      {
-        from: "workspace-template",
-        to: ".",
-      },
-    ],
+    resources: [],
     defaults: {
       provider: "github.com",
       owner,

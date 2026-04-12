@@ -145,7 +145,7 @@ async function handleRequest(
   const configDir = path.dirname(options.configPath);
 
   if (method === "GET" && url.pathname === "/api/config") {
-    const current = await loadConfig(configDir);
+    const current = await loadConfig(options.configPath);
     const content = await readFile(current.path, "utf8");
     sendJson(response, 200, {
       path: current.path,
@@ -177,19 +177,19 @@ async function handleRequest(
     const payload = await readJsonBody(request);
     const config = parseConfig(payload);
     await saveConfig(options.configPath, config);
-    const result = await runApply(configDir);
+    const result = await runApply(options.configPath);
     sendJson(response, 200, { ok: true, message: "workspace applied", result });
     return;
   }
 
   if (method === "GET" && url.pathname === "/api/doctor") {
-    const result = await runDoctor(configDir);
+    const result = await runDoctor(options.configPath);
     sendJson(response, 200, { ok: true, result });
     return;
   }
 
   if (method === "GET" && url.pathname === "/api/repo-template") {
-    const current = await loadConfig(configDir);
+    const current = await loadConfig(options.configPath);
     sendJson(response, 200, {
       ok: true,
       result: createRepoTemplate(current.config),
@@ -198,7 +198,7 @@ async function handleRequest(
   }
 
   if (method === "GET" && url.pathname === "/api/gh/repos") {
-    const current = await loadConfig(configDir);
+    const current = await loadConfig(options.configPath);
     const ghAvailable = await hasGh();
     if (!ghAvailable) {
       sendJson(response, 200, {
@@ -242,7 +242,7 @@ async function handleRequest(
     const payload = (await readJsonBody(request)) as {
       repo?: Record<string, unknown>;
     };
-    const current = await loadConfig(configDir);
+    const current = await loadConfig(options.configPath);
     const currentValue = current.config as unknown as Record<string, unknown>;
     const nextRepos = Array.isArray(currentValue.repos)
       ? [...currentValue.repos]

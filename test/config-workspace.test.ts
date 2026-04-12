@@ -28,6 +28,76 @@ describe("config validation", () => {
     ).toThrow("invalid config: repo categories must exist in categories");
   });
 
+  it("strips matching wrapping quotes across nested config strings", () => {
+    const config = parseConfig({
+      ghqRoot: '"/ghq"',
+      workspaceRoot: "'/workspace'",
+      categories: ['"projects"', "'tools'"],
+      repos: [
+        {
+          provider: '"github.com"',
+          owner: "'ts-76'",
+          name: '"life"',
+          category: "'projects'",
+        },
+      ],
+      hooks: {
+        afterInit: ['"echo "hi""'],
+      },
+      resources: [
+        {
+          from: '"workspace-template"',
+          to: "'./templates'",
+          mode: '"755"',
+        },
+      ],
+      defaults: {
+        provider: '"github.com"',
+        owner: "'ts-76'",
+        category: '"projects"',
+      },
+      editor: {
+        codeWorkspace: {
+          filename: '"main.code-workspace"',
+        },
+      },
+    });
+
+    expect(config).toMatchObject({
+      ghqRoot: "/ghq",
+      workspaceRoot: "/workspace",
+      categories: ["projects", "tools"],
+      repos: [
+        {
+          provider: "github.com",
+          owner: "ts-76",
+          name: "life",
+          category: "projects",
+        },
+      ],
+      hooks: {
+        afterInit: ['echo "hi"'],
+      },
+      resources: [
+        {
+          from: "workspace-template",
+          to: "./templates",
+          mode: "755",
+        },
+      ],
+      defaults: {
+        provider: "github.com",
+        owner: "ts-76",
+        category: "projects",
+      },
+      editor: {
+        codeWorkspace: {
+          filename: "main.code-workspace",
+        },
+      },
+    });
+  });
+
   it("creates template config with generic default categories", () => {
     const template = createConfigTemplate("/ghq", "/workspace", "ts-76");
 

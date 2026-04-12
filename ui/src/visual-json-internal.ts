@@ -1,4 +1,7 @@
 import {
+  getPropertySchema,
+  type JsonSchema,
+  type JsonSchemaProperty,
   moveNode,
   reorderChildrenMulti,
   type TreeNode,
@@ -64,11 +67,19 @@ export function getDisplayKey(node: TreeNode) {
   return node.key;
 }
 
-export function getResolvedSchema(node: TreeNode) {
-  return node.schema ?? null;
+export function getResolvedSchema(
+  schema: JsonSchema | null,
+  rootSchema: JsonSchemaProperty | undefined,
+  path: string,
+) {
+  if (!schema) {
+    return undefined;
+  }
+
+  return getPropertySchema(schema, path, rootSchema);
 }
 
-export function formatValue(value: unknown) {
+export function formatValue(value: TreeNode["value"]) {
   if (value === null) {
     return "null";
   }
@@ -80,24 +91,28 @@ export function formatValue(value: unknown) {
   return String(value);
 }
 
-export function getDisplayValue(value: unknown) {
-  if (Array.isArray(value)) {
-    return `[${value.length}]`;
+export function getDisplayValue(node: TreeNode) {
+  if (node.type === "array") {
+    return `[${node.children.length}]`;
   }
 
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).length}}`;
+  if (node.type === "object") {
+    return `{${node.children.length}}`;
   }
 
-  return formatValue(value);
+  if (node.type === "string") {
+    return node.value ?? "";
+  }
+
+  return formatValue(node.value);
 }
 
-export function getValueColor(value: unknown) {
-  if (value === null) {
+export function getValueColor(node: TreeNode) {
+  if (node.type === "null") {
     return "var(--vj-null)";
   }
 
-  switch (typeof value) {
+  switch (node.type) {
     case "string":
       return "var(--vj-string)";
     case "number":
@@ -109,27 +124,60 @@ export function getValueColor(value: unknown) {
   }
 }
 
-export function parseInputValue(raw: string, node: TreeNode) {
-  switch (node.type) {
+export function stripWrappingQuotes(raw: string) {
+  const trimmed = raw.trim();
+
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed.at(-1);
+    if ((first === '"' || first === "'") && first === last) {
+      return trimmed.slice(1, -1);
+    }
+  }
+
+  return raw;
+}
+
+export function parseInputValue(
+  raw: string,
+  schemaType: JsonSchemaProperty["type"] | undefined,
+  nodeType: TreeNode["type"],
+) {
+  const normalized = stripWrappingQuotes(raw);
+  const resolvedType =
+    typeof schemaType === "string"
+      ? schemaType
+      : Array.isArray(schemaType)
+        ? schemaType[0]
+        : undefined;
+  const targetType = resolvedType ?? nodeType;
+
+  switch (targetType) {
     case "number": {
-      const parsed = Number(raw);
-      return Number.isNaN(parsed) ? node.value : parsed;
+      const parsed = Number(normalized);
+      return Number.isNaN(parsed) ? normalized : parsed;
     }
     case "boolean":
-      return raw === "true";
+      return normalized === "true";
     case "null":
       return null;
     default:
-      return raw;
+      return normalized;
   }
 }
 
-export function checkRequired(schema: unknown) {
-  return Boolean(
-    schema &&
-      typeof schema === "object" &&
-      (schema as { required?: boolean }).required,
-  );
+export function checkRequired(
+  node: TreeNode,
+  schema: JsonSchema | null,
+  rootSchema: JsonSchemaProperty | undefined,
+) {
+  if (!node.parentId || !schema) {
+    return false;
+  }
+
+  const parentPath = node.path.split("/").slice(0, -1).join("/") || "/";
+  const parentSchema = getPropertySchema(schema, parentPath, rootSchema);
+  return Boolean(parentSchema?.required?.includes(node.key));
 }
 
 export function setMultiDragImage(dataTransfer: DataTransfer, count: number) {

@@ -56,13 +56,9 @@ export async function runInit(options: InitOptions) {
     process.cwd(),
     `${DEFAULT_CONFIG_BASENAME}.${format === "json" ? "json" : "yaml"}`,
   );
-  const templateRoot = path.join(process.cwd(), "workspace-template");
-
-  await mkdir(templateRoot, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
 
   for (const category of DEFAULT_CATEGORIES) {
-    await mkdir(path.join(templateRoot, category), { recursive: true });
     await mkdir(path.join(workspaceRoot, category), { recursive: true });
   }
 
@@ -75,7 +71,6 @@ export async function runInit(options: InitOptions) {
   });
 
   info(`created config: ${configPath}`);
-  info(`created workspace template directories under: ${templateRoot}`);
   info(`prepared workspace root: ${workspaceRoot}`);
   if (config.defaults?.owner) {
     info(`default owner: ${config.defaults.owner}`);
