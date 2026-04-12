@@ -167,6 +167,16 @@ Regenerate symlinks, copy configured resources, and regenerate the `.code-worksp
 gsec sync
 ```
 
+### `gsec apply`
+
+Apply the full config state: ensure missing repositories exist in `ghq`, sync the workspace, and copy the config file into the workspace root.
+
+```bash
+gsec apply
+```
+
+Use this when you want the CLI equivalent of the editor's **Apply** action.
+
 ### `gsec clone`
 
 Clone a repository with `ghq`, append it to the config, and sync the workspace.

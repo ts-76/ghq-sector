@@ -154,6 +154,16 @@ gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 gsec sync
 ```
 
+### `gsec apply`
+
+config の完全な状態を反映します。`ghq` 内に不足している repository を揃え、workspace を sync し、config file を workspace root にコピーします。
+
+```bash
+gsec apply
+```
+
+editor の **Apply** 操作と同等の処理を CLI から実行したいときに使います。
+
 ### `gsec clone`
 
 `ghq` で repository を取得し、config に追加して workspace を同期します。
