@@ -15,12 +15,13 @@ export function buildJsonSchema(): JsonSchema {
     properties: {
       ghqRoot: {
         type: "string",
-        description: "Absolute path to your ghq root. Example: /Users/you/ghq",
+        description:
+          "Absolute path to your ghq root. Enter the raw path only, without wrapping quotes. Example: /Users/you/ghq",
       },
       workspaceRoot: {
         type: "string",
         description:
-          "Absolute path to the workspace root where category directories and symlinks will be created.",
+          "Absolute path to the workspace root where category directories and symlinks will be created. Enter the raw path only, without wrapping quotes.",
       },
       categories: {
         type: "array",
@@ -43,7 +44,7 @@ export function buildJsonSchema(): JsonSchema {
           owner: {
             type: "string",
             description:
-              "Default repository owner or organization used when clone input omits the owner.",
+              "Default repository owner or organization used when clone input omits the owner. Enter the raw value only, without wrapping quotes.",
           },
           category: {
             type: "string",
@@ -147,11 +148,13 @@ export function buildJsonSchema(): JsonSchema {
           properties: {
             from: {
               type: "string",
-              description: "Source path relative to the config project root.",
+              description:
+                "Source path relative to the config project root. Enter the raw path only, without wrapping quotes.",
             },
             to: {
               type: "string",
-              description: "Destination path relative to workspaceRoot.",
+              description:
+                "Destination path relative to workspaceRoot. Enter the raw path only, without wrapping quotes.",
             },
             mode: {
               type: "string",

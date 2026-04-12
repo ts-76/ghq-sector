@@ -514,6 +514,47 @@ async function loadGhRepos(ownerOverride?: string) {
   }
 }
 
+async function addSelectedGhRepo() {
+  const selected = selectedRepoPreview;
+  if (!selected) {
+    return;
+  }
+
+  addingRepo = true;
+  successMessage = "";
+  errorMessage = "";
+
+  try {
+    const response = await fetch("/api/repos", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        repo: {
+          provider: selected.provider,
+          owner: selected.owner,
+          name: selected.name,
+          category: selected.category,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    await load();
+    await previewWorkspace();
+    successMessage = `added ${selected.nameWithOwner}`;
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "failed to add selected repo";
+  } finally {
+    addingRepo = false;
+  }
+}
+
 function parseRawValue() {
   if (format === "json") {
     return JSON.parse(rawValue);
@@ -563,7 +604,7 @@ function parseRawValue() {
   <section class="workspace-shell">
     <section class="editor-shell">
       <div class="editor-header compact-header">
-        <h2>{configPath ? configPath.split('/').at(-1) : 'ghq-ws config'}</h2>
+        <h2>{configPath ? configPath.split('/').at(-1) : 'ghq-sector config'}</h2>
         <div class="editor-tools">
           <div class="tabs segmented-tabs">
             <button type="button" class:active={currentTab === 'visual'} onclick={() => (currentTab = 'visual')}>Visual</button>
@@ -586,8 +627,8 @@ function parseRawValue() {
           height="min(78vh, 920px)"
           class="json-editor"
           editorShowDescriptions={true}
-          treeShowCounts={true}
-          editorShowCounts={true}
+          treeShowCounts={false}
+          editorShowCounts={false}
         />
       {:else}
         <div class="placeholder editor-placeholder">Loading schema...</div>

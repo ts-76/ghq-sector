@@ -145,7 +145,7 @@ async function handleRequest(
   const configDir = path.dirname(options.configPath);
 
   if (method === "GET" && url.pathname === "/api/config") {
-    const current = await loadConfig(configDir);
+    const current = await loadConfig(options.configPath);
     const content = await readFile(current.path, "utf8");
     sendJson(response, 200, {
       path: current.path,
