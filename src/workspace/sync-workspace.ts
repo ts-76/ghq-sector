@@ -3,7 +3,6 @@ import path from "node:path";
 import type { GhqWsConfig } from "../config/schema.js";
 import { runHooks } from "../hooks/run-hooks.js";
 import { warn } from "../shared/logger.js";
-import { expandHome } from "../shared/paths.js";
 import {
   getRepoDestinationPath,
   getRepoSourcePath,
@@ -18,8 +17,8 @@ export interface SyncWorkspaceResult {
 export async function syncWorkspace(
   config: GhqWsConfig,
 ): Promise<SyncWorkspaceResult> {
-  const workspaceRoot = expandHome(config.workspaceRoot);
-  const ghqRoot = expandHome(config.ghqRoot);
+  const workspaceRoot = config.workspaceRoot;
+  const ghqRoot = config.ghqRoot;
   const linked: string[] = [];
   const skipped: string[] = [];
 

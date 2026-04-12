@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { normalizePortableConfig } from "../config/machine-paths.js";
 import { type ConfigFormat, serializeConfig } from "../config/serialize.js";
 import { createConfigTemplate } from "../config/template.js";
 import { runHooks } from "../hooks/run-hooks.js";
@@ -47,10 +48,8 @@ export async function runInit(options: InitOptions) {
     ? await getDefaultOwnerForYesMode()
     : await selectDefaultOwner();
 
-  const config = createConfigTemplate(
-    ghqRoot,
-    workspaceRoot,
-    owner ?? undefined,
+  const config = normalizePortableConfig(
+    createConfigTemplate(ghqRoot, workspaceRoot, owner ?? undefined),
   );
   const configPath = path.join(
     process.cwd(),
@@ -64,7 +63,10 @@ export async function runInit(options: InitOptions) {
 
   await writeFile(configPath, serializeConfig(config, format), "utf8");
   const copiedResources = await copyResources(config, process.cwd());
-  const codeWorkspacePath = await generateCodeWorkspace(config);
+  const codeWorkspacePath = await generateCodeWorkspace({
+    ...config,
+    workspaceRoot,
+  });
   await runHooks(config.hooks?.afterInit, {
     ghqRoot,
     workspaceRoot,

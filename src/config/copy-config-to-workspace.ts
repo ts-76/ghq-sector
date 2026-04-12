@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expandHome } from "../shared/paths.js";
+import { normalizePortableConfig } from "./machine-paths.js";
 import type { GhqWsConfig } from "./schema.js";
 import { serializeConfig } from "./serialize-config.js";
 
@@ -8,15 +8,15 @@ export async function copyConfigToWorkspace(
   sourceConfigPath: string,
   config: GhqWsConfig,
 ) {
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const portableConfig = normalizePortableConfig(config);
   const destinationPath = path.join(
-    workspaceRoot,
+    config.workspaceRoot,
     path.basename(sourceConfigPath),
   );
-  await mkdir(workspaceRoot, { recursive: true });
+  await mkdir(config.workspaceRoot, { recursive: true });
   await writeFile(
     destinationPath,
-    serializeConfig(sourceConfigPath, config),
+    serializeConfig(sourceConfigPath, portableConfig),
     "utf8",
   );
   return destinationPath;

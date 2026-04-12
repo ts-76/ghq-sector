@@ -21,6 +21,19 @@ You want to work across many repositories with AI agents. But how do you organiz
 - generate a `.code-workspace` file so editors and AI agents see a clean, structured workspace
 - manage everything visually or as raw JSON — and reproduce it anywhere
 
+## Why this matters
+
+A symlink-only workspace is easy to understand, but the symlinks themselves are machine-local state. They embed real filesystem paths, so copying the workspace directory to another machine is not enough when `ghqRoot`, usernames, or home directory layouts differ.
+
+`ghq-sector` makes the **config file** the source of truth instead of the symlinks:
+
+- keep one portable JSON/YAML config in version control
+- regenerate the local workspace from that config on each machine
+- adapt to different `ghqRoot` and `workspaceRoot` values without hand-editing every link
+- detect drift with `gsec doctor` and repair it with `gsec sync`
+
+In other words, the value is not just “create symlinks once,” but “rebuild the same categorized workspace reliably on any machine.”
+
 ## Requirements
 
 - Node.js 20+
@@ -76,6 +89,17 @@ The editor is built with [visual-json](https://github.com/vercel-labs/visual-jso
 - symlinks pointing to repositories managed by `ghq`
 - copied resources declared in `resources`
 - a generated VS Code `.code-workspace` file when enabled
+
+## Portable config behavior
+
+`ghq-sector` treats the config file as portable and the generated workspace as machine-local:
+
+- `ghqRoot` and `workspaceRoot` are saved in portable form when possible, such as `~/ghq`
+- runtime commands resolve those paths on the current machine before cloning, syncing, previewing, or applying
+- `ghqRoot` may be adapted to the current machine's detected `ghq root`
+- symlinks and generated workspace files should be regenerated per machine with `gsec sync` or `gsec apply`
+
+If you copy a workspace/config directory between macOS, Linux, or Windows environments, keep the config under version control and regenerate the local workspace instead of copying existing symlinks.
 
 Default categories:
 

@@ -1,11 +1,11 @@
 import { access, lstat, readlink } from "node:fs/promises";
 import path from "node:path";
+import { getRuntimePaths } from "../config/machine-paths.js";
 import { loadConfig } from "../config/load-config.js";
 import type { GhqWsConfig } from "../config/schema.js";
 import { hasGh, listGhOwnerCandidates } from "../shared/gh.js";
 import { getGhqRoot, hasGhq } from "../shared/ghq.js";
 import { info, success, warn } from "../shared/logger.js";
-import { expandHome } from "../shared/paths.js";
 import {
   getRepoDestinationPath,
   getRepoSourcePath,
@@ -96,16 +96,35 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
   const { path: configPath, config } = await loadConfig(cwd);
   push("success", "config", `ok (${configPath})`);
 
-  const expandedConfigGhqRoot = expandHome(config.ghqRoot);
-  if (expandedConfigGhqRoot !== detectedGhqRoot) {
+  const runtimePaths = await getRuntimePaths(config);
+  if (runtimePaths.configuredGhqRoot !== runtimePaths.resolvedGhqRoot) {
     push(
       "warn",
       "config ghqRoot",
-      `differs from detected ghq root (${config.ghqRoot})`,
+      `configured ${runtimePaths.configuredGhqRoot}, runtime ${runtimePaths.resolvedGhqRoot}`,
+    );
+  } else {
+    push("info", "config ghqRoot", `runtime ${runtimePaths.resolvedGhqRoot}`);
+  }
+  if (runtimePaths.resolvedGhqRoot !== detectedGhqRoot) {
+    push(
+      "warn",
+      "runtime ghqRoot",
+      `differs from detected ghq root (${runtimePaths.resolvedGhqRoot} vs ${detectedGhqRoot})`,
     );
   }
 
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const workspaceRoot = runtimePaths.resolvedWorkspaceRoot;
+  if (runtimePaths.configuredWorkspaceRoot !== workspaceRoot) {
+    push(
+      "info",
+      "config workspaceRoot",
+      `configured ${runtimePaths.configuredWorkspaceRoot}, runtime ${workspaceRoot}`,
+    );
+  } else {
+    push("info", "config workspaceRoot", `runtime ${workspaceRoot}`);
+  }
+
   let workspaceRootExists = true;
   try {
     await access(workspaceRoot);
@@ -131,7 +150,7 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
 
   for (const repo of config.repos) {
     const label = `${repo.provider}/${repo.owner}/${repo.name}`;
-    const source = getRepoSourcePath(detectedGhqRoot, repo);
+    const source = getRepoSourcePath(runtimePaths.resolvedGhqRoot, repo);
 
     if (!config.categories.includes(repo.category)) {
       push(
@@ -180,27 +199,25 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
       } catch {
         push("warn", "code workspace", `missing (${codeWorkspacePath})`);
       }
+    } else {
+      push("info", "code workspace", "disabled by config");
     }
 
     for (const repo of config.repos) {
       const label = `${repo.provider}/${repo.owner}/${repo.name}`;
-      const dest = getRepoDestinationPath(workspaceRoot, repo);
+      const destination = getRepoDestinationPath(workspaceRoot, repo);
 
       try {
-        const stat = await lstat(dest);
-        if (!stat.isSymbolicLink()) {
-          push(
-            "warn",
-            `repo ${label}`,
-            `destination is not a symlink (${dest})`,
-          );
+        const stats = await lstat(destination);
+        if (!stats.isSymbolicLink()) {
+          push("warn", `link ${label}`, `not a symlink (${destination})`);
           continue;
         }
 
-        const target = await readlink(dest);
-        push("info", `repo ${label}`, `link ok (${dest} -> ${target})`);
+        const target = await readlink(destination);
+        push("success", `link ${label}`, `ok (${destination} -> ${target})`);
       } catch {
-        push("warn", `repo ${label}`, `missing link (${dest})`);
+        push("warn", `link ${label}`, `missing (${destination})`);
       }
     }
   }
@@ -216,7 +233,7 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
     configPath,
     checks,
     summary,
-    ghqRoot: detectedGhqRoot,
+    ghqRoot: runtimePaths.resolvedGhqRoot,
     workspaceRoot,
     defaults: {
       provider: config.defaults?.provider ?? null,
@@ -230,63 +247,74 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
 function checkDefaults(
   config: GhqWsConfig,
   activeCandidate: string | null,
-  candidateCount: number,
+  ownerCandidateCount: number,
   push: (level: DoctorCheck["level"], scope: string, message: string) => void,
 ) {
-  if (config.defaults?.provider) {
-    push("success", "defaults.provider", config.defaults.provider);
+  const provider = config.defaults?.provider ?? null;
+  const owner = config.defaults?.owner ?? null;
+  const category = config.defaults?.category ?? null;
+
+  if (!provider) {
+    push("info", "defaults.provider", "unset (will use github.com)");
   } else {
-    push("warn", "defaults.provider", "missing");
+    push("success", "defaults.provider", `ok (${provider})`);
   }
 
-  if (config.defaults?.category) {
-    push("success", "defaults.category", config.defaults.category);
+  if (!owner) {
+    if (ownerCandidateCount === 0) {
+      push("warn", "defaults.owner", "unset and no gh account available");
+    } else if (activeCandidate) {
+      push(
+        "info",
+        "defaults.owner",
+        `unset (short clone will use active gh account ${activeCandidate})`,
+      );
+    } else {
+      push("info", "defaults.owner", "unset (short clone will prompt)");
+    }
   } else {
-    push("warn", "defaults.category", "missing");
+    push("success", "defaults.owner", `ok (${owner})`);
   }
 
-  if (config.defaults?.owner) {
-    const ownerLabel =
-      config.defaults.owner === activeCandidate ? " (active)" : "";
-    push("success", "defaults.owner", `${config.defaults.owner}${ownerLabel}`);
-    push("success", "shorthand clone", "available");
-    return;
-  }
-
-  push("warn", "defaults.owner", "missing");
-  if (candidateCount > 0) {
+  if (!category) {
+    push("info", "defaults.category", "unset (clone will prompt or require --category)");
+  } else if (!config.categories.includes(category)) {
     push(
       "warn",
-      "shorthand clone",
-      "interactive owner selection available, or use --owner",
+      "defaults.category",
+      `not listed in categories (${category})`,
     );
-    return;
+  } else {
+    push("success", "defaults.category", `ok (${category})`);
   }
-
-  push("warn", "shorthand clone", "requires --owner or full repository path");
 }
 
 function checkCategories(
   config: GhqWsConfig,
   push: (level: DoctorCheck["level"], scope: string, message: string) => void,
 ) {
-  const seen = new Set<string>();
-  for (const category of config.categories) {
-    if (seen.has(category)) {
-      push("warn", "categories", `duplicate category (${category})`);
-      continue;
-    }
-    seen.add(category);
+  if (config.categories.length === 0) {
+    push("warn", "categories", "empty");
+    return;
   }
 
-  if (
-    config.defaults?.category &&
-    !config.categories.includes(config.defaults.category)
-  ) {
-    push(
-      "warn",
-      "defaults.category",
-      `not declared in categories (${config.defaults.category})`,
-    );
+  const duplicates = findDuplicates(config.categories);
+  if (duplicates.length > 0) {
+    push("warn", "categories", `duplicate values: ${duplicates.join(", ")}`);
+    return;
   }
+
+  push("success", "categories", `ok (${config.categories.join(", ")})`);
+}
+
+function findDuplicates(values: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([value]) => value)
+    .sort();
 }

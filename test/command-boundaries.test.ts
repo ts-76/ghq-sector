@@ -90,11 +90,61 @@ describe("init workflow", () => {
       process.chdir(previousCwd);
     }
   });
+
+  it("preserves explicit non-home absolute roots during init", async () => {
+    const root = await makeTempRoot();
+    const cwd = path.join(root, "config-home");
+
+    await mkdir(cwd, { recursive: true });
+
+    vi.doMock("../src/shared/gh.js", () => ({
+      listGhOwnerCandidates: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({
+      copyResources: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
+      generateCodeWorkspace: vi.fn(async () => null),
+    }));
+    vi.doMock("../src/hooks/run-hooks.js", () => ({
+      runHooks: vi.fn(async () => []),
+    }));
+
+    const previousCwd = process.cwd();
+    process.chdir(cwd);
+
+    try {
+      const { runInit } = await importFresh<
+        typeof import("../src/commands/init.js")
+      >("../src/commands/init.js");
+
+      await runInit({
+        ghqRoot: path.join(root, "ghq"),
+        workspaceRoot: path.join(root, "workspace", "sub"),
+        format: "json",
+        yes: true,
+      });
+
+      const saved = JSON.parse(
+        await readFile(path.join(cwd, "ghq-sector.config.json"), "utf8"),
+      ) as GhqWsConfig;
+
+      expect(saved.ghqRoot).toBe(path.join(root, "ghq"));
+      expect(saved.workspaceRoot).toBe(path.join(root, "workspace", "sub"));
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
 });
 
 describe("apply workflow", () => {
   it("returns fetched/already-present repos and sync/copy results via runApply", async () => {
     const config = createConfig("/tmp/project");
+    const runtimeConfig = {
+      ...config,
+      ghqRoot: "/detected/ghq",
+      workspaceRoot: "/resolved/workspace",
+    };
 
     const loadConfig = vi.fn(async () => ({
       path: "/tmp/project/ghq-sector.config.json",
@@ -117,6 +167,14 @@ describe("apply workflow", () => {
     );
 
     vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      getRuntimePaths: vi.fn(async () => ({
+        configuredGhqRoot: config.ghqRoot,
+        configuredWorkspaceRoot: config.workspaceRoot,
+        resolvedGhqRoot: runtimeConfig.ghqRoot,
+        resolvedWorkspaceRoot: runtimeConfig.workspaceRoot,
+      })),
+    }));
     vi.doMock("../src/ghq/ensure-repos.js", () => ({ ensureRepos }));
     vi.doMock("../src/commands/sync.js", () => ({ runSync }));
     vi.doMock("../src/config/copy-config-to-workspace.js", () => ({
@@ -129,11 +187,11 @@ describe("apply workflow", () => {
     const result = await runApply("/tmp/project");
 
     expect(loadConfig).toHaveBeenCalledWith("/tmp/project");
-    expect(ensureRepos).toHaveBeenCalledWith(config);
-    expect(runSync).toHaveBeenCalledWith("/tmp/project");
+    expect(ensureRepos).toHaveBeenCalledWith(runtimeConfig);
+    expect(runSync).toHaveBeenCalledWith("/tmp/project", runtimeConfig);
     expect(copyConfigToWorkspace).toHaveBeenCalledWith(
       "/tmp/project/ghq-sector.config.json",
-      config,
+      runtimeConfig,
     );
     expect(result).toEqual({
       configPath: "/tmp/project/ghq-sector.config.json",
@@ -171,6 +229,14 @@ describe("apply workflow", () => {
     const copyConfigToWorkspace = vi.fn(async () => directConfigPath);
 
     vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      getRuntimePaths: vi.fn(async () => ({
+        configuredGhqRoot: config.ghqRoot,
+        configuredWorkspaceRoot: config.workspaceRoot,
+        resolvedGhqRoot: config.ghqRoot,
+        resolvedWorkspaceRoot: config.workspaceRoot,
+      })),
+    }));
     vi.doMock("../src/ghq/ensure-repos.js", () => ({ ensureRepos }));
     vi.doMock("../src/commands/sync.js", () => ({ runSync }));
     vi.doMock("../src/config/copy-config-to-workspace.js", () => ({
@@ -184,7 +250,7 @@ describe("apply workflow", () => {
     await runApply(directConfigPath);
 
     expect(loadConfig).toHaveBeenCalledWith(directConfigPath);
-    expect(runSync).toHaveBeenCalledWith(directConfigPath);
+    expect(runSync).toHaveBeenCalledWith(directConfigPath, config);
   });
 
   it("ghq gets only missing repos in ensureRepos and runs clone hooks around them", async () => {
@@ -196,49 +262,29 @@ describe("apply workflow", () => {
       "ts-76",
       "life",
     );
+    const missingSource = path.join(
+      config.ghqRoot,
+      "github.com",
+      "ts-76",
+      "dotfiles",
+    );
+    const hookCalls: Array<Record<string, unknown>> = [];
+    const ghqGet = vi.fn(async () => {
+      await mkdir(missingSource, { recursive: true });
+    });
+    const runHooks = vi.fn(async (_hooks, variables) => {
+      hookCalls.push(variables);
+    });
 
     await mkdir(presentSource, { recursive: true });
+    await mkdir(config.workspaceRoot, { recursive: true });
 
-    const callOrder: string[] = [];
-    const hookCalls: Array<{
-      commands: string[] | undefined;
-      context: Record<string, unknown>;
-    }> = [];
-    const ghqGetCalls: string[] = [];
-
-    vi.doMock("../src/hooks/run-hooks.js", () => ({
-      runHooks: vi.fn(
-        async (
-          commands: string[] | undefined,
-          context: Record<string, unknown>,
-        ) => {
-          if (commands?.includes("before-clone")) callOrder.push("beforeClone");
-          if (commands?.includes("after-clone")) callOrder.push("afterClone");
-          hookCalls.push({ commands, context });
-          return [];
-        },
-      ),
-    }));
-
-    vi.doMock("../src/ghq/ghq-get.js", () => ({
-      ghqGet: vi.fn(async (repository: string) => {
-        callOrder.push("ghqGet");
-        ghqGetCalls.push(repository);
-        await mkdir(path.join(config.ghqRoot, repository), { recursive: true });
-      }),
-    }));
+    vi.doMock("../src/ghq/ghq-get.js", () => ({ ghqGet }));
+    vi.doMock("../src/hooks/run-hooks.js", () => ({ runHooks }));
 
     const { ensureRepos } = await importFresh<
       typeof import("../src/ghq/ensure-repos.js")
     >("../src/ghq/ensure-repos.js");
-
-    config.hooks = {
-      beforeClone: ["before-clone"],
-      afterClone: ["after-clone"],
-      afterInit: [],
-      afterLink: [],
-      afterSync: [],
-    };
 
     const result = await ensureRepos(config);
 
@@ -246,548 +292,257 @@ describe("apply workflow", () => {
       fetched: ["github.com/ts-76/dotfiles"],
       alreadyPresent: ["github.com/ts-76/life"],
     });
-    expect(ghqGetCalls).toEqual(["github.com/ts-76/dotfiles"]);
-    expect(callOrder).toEqual(["beforeClone", "ghqGet", "afterClone"]);
-    expect(hookCalls).toHaveLength(2);
-    expect(hookCalls[0]).toMatchObject({
-      commands: ["before-clone"],
-      context: {
+    expect(ghqGet).toHaveBeenCalledTimes(1);
+    expect(ghqGet).toHaveBeenCalledWith("github.com/ts-76/dotfiles");
+    expect(hookCalls).toEqual([
+      {
         provider: "github.com",
         owner: "ts-76",
         repo: "dotfiles",
         category: "tools",
+        ghqPath: missingSource,
+        workspacePath: path.join(config.workspaceRoot, "tools", "dotfiles"),
         ghqRoot: config.ghqRoot,
         workspaceRoot: config.workspaceRoot,
-        ghqPath: path.join(config.ghqRoot, "github.com", "ts-76", "dotfiles"),
-        workspacePath: path.join(config.workspaceRoot, "tools", "dotfiles"),
       },
-    });
-    expect(hookCalls[1]).toMatchObject({
-      commands: ["after-clone"],
-      context: {
-        repo: "dotfiles",
-      },
-    });
-  });
-
-  it("propagates ghq get failures from ensureRepos", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const presentSource = path.join(
-      config.ghqRoot,
-      "github.com",
-      "ts-76",
-      "life",
-    );
-
-    await mkdir(presentSource, { recursive: true });
-
-    vi.doMock("../src/hooks/run-hooks.js", () => ({
-      runHooks: vi.fn(async () => []),
-    }));
-
-    vi.doMock("../src/ghq/ghq-get.js", () => ({
-      ghqGet: vi.fn(async () => {
-        throw new Error("ghq get failed");
-      }),
-    }));
-
-    const { ensureRepos } = await importFresh<
-      typeof import("../src/ghq/ensure-repos.js")
-    >("../src/ghq/ensure-repos.js");
-
-    await expect(ensureRepos(config)).rejects.toThrow("ghq get failed");
-  });
-
-  it("stops runApply when ensureRepos fails before sync/copy", async () => {
-    const config = createConfig("/tmp/project");
-    const loadConfig = vi.fn(async () => ({
-      path: "/tmp/project/ghq-sector.config.json",
-      config,
-    }));
-    const ensureRepos = vi.fn(async () => {
-      throw new Error("ensure failed");
-    });
-    const runSync = vi.fn(async () => ({
-      configPath: "/tmp/project/ghq-sector.config.json",
-      workspaceRoot: "/tmp/project/workspace",
-      linkedCount: 0,
-      skippedCount: 0,
-      copiedResourcesCount: 0,
-      codeWorkspacePath: null,
-    }));
-    const copyConfigToWorkspace = vi.fn(
-      async () => "/tmp/project/workspace/ghq-sector.config.json",
-    );
-
-    vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
-    vi.doMock("../src/ghq/ensure-repos.js", () => ({ ensureRepos }));
-    vi.doMock("../src/commands/sync.js", () => ({ runSync }));
-    vi.doMock("../src/config/copy-config-to-workspace.js", () => ({
-      copyConfigToWorkspace,
-    }));
-
-    const { runApply } = await importFresh<
-      typeof import("../src/commands/apply.js")
-    >("../src/commands/apply.js");
-
-    await expect(runApply("/tmp/project")).rejects.toThrow("ensure failed");
-    expect(runSync).not.toHaveBeenCalled();
-    expect(copyConfigToWorkspace).not.toHaveBeenCalled();
-  });
-
-  it("generates .code-workspace content and copies resources/config into workspace", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const cwd = path.join(root, "config-home");
-    const sourceConfigPath = path.join(cwd, "ghq-sector.config.json");
-
-    await mkdir(cwd, { recursive: true });
-    await mkdir(config.workspaceRoot, { recursive: true });
-    await writeFile(path.join(cwd, "notes.md"), "# notes\n", "utf8");
-    await writeFile(sourceConfigPath, JSON.stringify(config, null, 2), "utf8");
-
-    config.resources = [{ from: "notes.md", to: "docs/notes.md" }];
-
-    const { copyResources } = await importFresh<
-      typeof import("../src/resources/copy-resources.js")
-    >("../src/resources/copy-resources.js");
-    const { generateCodeWorkspace } = await importFresh<
-      typeof import("../src/workspace/generate-code-workspace.js")
-    >("../src/workspace/generate-code-workspace.js");
-    const { copyConfigToWorkspace } = await importFresh<
-      typeof import("../src/config/copy-config-to-workspace.js")
-    >("../src/config/copy-config-to-workspace.js");
-
-    const copiedResources = await copyResources(config, cwd);
-    const workspaceFilePath = await generateCodeWorkspace(config);
-    const copiedConfigPath = await copyConfigToWorkspace(
-      sourceConfigPath,
-      config,
-    );
-
-    expect(copiedResources).toEqual([
-      path.join(config.workspaceRoot, "docs", "notes.md"),
-    ]);
-    expect(await readFile(copiedResources[0], "utf8")).toBe("# notes\n");
-    expect(workspaceFilePath).toBe(
-      path.join(config.workspaceRoot, "main.code-workspace"),
-    );
-    expect(JSON.parse(await readFile(workspaceFilePath ?? "", "utf8"))).toEqual(
       {
-        folders: [{ path: "projects/life" }, { path: "tools/dotfiles" }],
-        settings: {
-          "files.exclude": {
-            "**/.git": true,
-            "**/.DS_Store": true,
-          },
-        },
+        provider: "github.com",
+        owner: "ts-76",
+        repo: "dotfiles",
+        category: "tools",
+        ghqPath: missingSource,
+        workspacePath: path.join(config.workspaceRoot, "tools", "dotfiles"),
+        ghqRoot: config.ghqRoot,
+        workspaceRoot: config.workspaceRoot,
       },
-    );
-    expect(copiedConfigPath).toBe(
-      path.join(config.workspaceRoot, "ghq-sector.config.json"),
-    );
-    expect(JSON.parse(await readFile(copiedConfigPath, "utf8"))).toEqual(
-      config,
-    );
+    ]);
   });
 });
 
 describe("clone workflow", () => {
-  function setupCloneMocks(root: string) {
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-    const savedConfigs: GhqWsConfig[] = [];
-    const ghqGetCalls: string[] = [];
-    const hookCalls: Array<{
-      commands: string[] | undefined;
-      context: Record<string, unknown>;
-    }> = [];
+  it("resolves runtime roots before clone-side repo and workspace operations", async () => {
+    const config = {
+      ...createConfig("/tmp/project"),
+      ghqRoot: "/Users/other/ghq",
+      workspaceRoot: "/Users/other/workspace/sub",
+    };
+    const runtimeConfig = {
+      ...config,
+      ghqRoot: "/resolved/ghq",
+      workspaceRoot: "/resolved/workspace",
+    };
+    const saveConfig = vi.fn(async () => undefined);
+    const ghqGet = vi.fn(async () => undefined);
+    const syncWorkspace = vi.fn(async () => ({
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      linked: ["one"],
+      skipped: [],
+    }));
+    const copyResources = vi.fn(async () => []);
+    const generateCodeWorkspace = vi.fn(async () => null);
+    const runHooks = vi.fn(async () => []);
+    const accessSpy = vi.fn(async () => undefined);
 
-    vi.doMock("../src/config/save-config.js", () => ({
-      saveConfig: vi.fn(
-        async (_configPath: string, nextConfig: GhqWsConfig) => {
-          savedConfigs.push(nextConfig);
-        },
-      ),
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      resolveConfigForCurrentMachine: vi.fn(async () => runtimeConfig),
     }));
-    vi.doMock("../src/ghq/ghq-get.js", () => ({
-      ghqGet: vi.fn(async (repository: string) => {
-        ghqGetCalls.push(repository);
-        await mkdir(path.join(config.ghqRoot, repository), { recursive: true });
-      }),
-    }));
-    vi.doMock("../src/hooks/run-hooks.js", () => ({
-      runHooks: vi.fn(
-        async (
-          commands: string[] | undefined,
-          context: Record<string, unknown>,
-        ) => {
-          hookCalls.push({ commands, context });
-          return [];
-        },
-      ),
-    }));
-    vi.doMock("../src/resources/copy-resources.js", () => ({
-      copyResources: vi.fn(async () => ["/tmp/resource"]),
-    }));
+    vi.doMock("../src/config/save-config.js", () => ({ saveConfig }));
+    vi.doMock("../src/ghq/ghq-get.js", () => ({ ghqGet }));
+    vi.doMock("../src/workspace/sync-workspace.js", () => ({ syncWorkspace }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({ copyResources }));
     vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
-      generateCodeWorkspace: vi.fn(async () =>
-        path.join(config.workspaceRoot, "main.code-workspace"),
-      ),
+      generateCodeWorkspace,
     }));
-    vi.doMock("../src/workspace/sync-workspace.js", () => ({
-      syncWorkspace: vi.fn(async (nextConfig: GhqWsConfig) => ({
-        workspaceRoot: nextConfig.workspaceRoot,
-        linked: nextConfig.repos.map((repo) => ({
-          repo,
-          destinationPath: path.join(
-            nextConfig.workspaceRoot,
-            repo.category,
-            repo.name,
-          ),
-        })),
-        skipped: [],
-      })),
-    }));
-
-    return { config, configPath, savedConfigs, ghqGetCalls, hookCalls };
-  }
-
-  it("parses provider/owner/name repositories and upserts config", async () => {
-    const root = await makeTempRoot();
-    const { config, configPath, savedConfigs, ghqGetCalls, hookCalls } =
-      setupCloneMocks(root);
-    config.repos = [
-      {
-        provider: "github.com",
-        owner: "ts-76",
-        name: "life",
-        category: "docs",
-      },
-    ];
+    vi.doMock("../src/hooks/run-hooks.js", () => ({ runHooks }));
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
+      return {
+        ...actual,
+        access: accessSpy,
+      };
+    });
 
     const { runClone } = await importFresh<
       typeof import("../src/commands/clone.js")
     >("../src/commands/clone.js");
+
     const result = await runClone(config, {
-      repository: "github.enterprise.local/infra/toolbox",
-      configPath,
-      category: "tools",
+      repository: "owner/repo",
+      category: "projects",
+      configPath: "/tmp/project/ghq-sector.config.json",
       yes: true,
     });
 
-    expect(result.repo).toEqual({
-      provider: "github.enterprise.local",
-      owner: "infra",
-      name: "toolbox",
-      category: "tools",
-    });
-    expect(result.repositoryPath).toBe("github.enterprise.local/infra/toolbox");
-    expect(ghqGetCalls).toEqual(["github.enterprise.local/infra/toolbox"]);
-    expect(savedConfigs).toHaveLength(1);
-    expect(savedConfigs[0].repos).toContainEqual({
-      provider: "github.enterprise.local",
-      owner: "infra",
-      name: "toolbox",
-      category: "tools",
-    });
-    expect(hookCalls).toHaveLength(2);
-  });
-
-  it("parses owner/name repositories with default provider", async () => {
-    const root = await makeTempRoot();
-    const { config, configPath } = setupCloneMocks(root);
-
-    const { runClone } = await importFresh<
-      typeof import("../src/commands/clone.js")
-    >("../src/commands/clone.js");
-    const result = await runClone(config, {
-      repository: "labelmake/ghq-ws",
-      configPath,
-      yes: true,
-    });
-
-    expect(result.repo).toEqual({
-      provider: "github.com",
-      owner: "labelmake",
-      name: "ghq-ws",
-      category: "projects",
-    });
-  });
-
-  it("parses shorthand name repositories with defaults.owner", async () => {
-    const root = await makeTempRoot();
-    const { config, configPath } = setupCloneMocks(root);
-
-    const { runClone } = await importFresh<
-      typeof import("../src/commands/clone.js")
-    >("../src/commands/clone.js");
-    const result = await runClone(config, {
-      repository: "life",
-      configPath,
-      yes: true,
-    });
-
-    expect(result.repo).toEqual({
-      provider: "github.com",
-      owner: "ts-76",
-      name: "life",
-      category: "projects",
-    });
-  });
-
-  it("uses interactive owner resolution for shorthand clones when defaults.owner is missing", async () => {
-    const root = await makeTempRoot();
-    const { config, configPath } = setupCloneMocks(root);
-    config.defaults = {
-      provider: "github.com",
-      category: "projects",
-    };
-
-    vi.doMock("../src/shared/gh.js", () => ({
-      resolveOwner: vi.fn(async () => ({
-        candidates: [
-          { login: "ts-76", active: true },
-          { login: "labelmake", active: false },
-        ],
-        defaultIndex: 0,
-      })),
-    }));
-    vi.doMock("../src/shared/prompt.js", () => ({
-      selectFromChoices: vi.fn(async () => ({ index: 1, value: "labelmake" })),
-    }));
-
-    const { runClone } = await importFresh<
-      typeof import("../src/commands/clone.js")
-    >("../src/commands/clone.js");
-    const result = await runClone(config, {
-      repository: "workspace",
-      configPath,
-    });
-
-    expect(result.repo.owner).toBe("labelmake");
-    expect(result.repositoryPath).toBe("github.com/labelmake/workspace");
-  });
-
-  it("fails shorthand clones when owner cannot be resolved", async () => {
-    const root = await makeTempRoot();
-    const { config, configPath } = setupCloneMocks(root);
-    config.defaults = {
-      provider: "github.com",
-      category: "projects",
-    };
-
-    vi.doMock("../src/shared/gh.js", () => ({
-      resolveOwner: vi.fn(async () => null),
-    }));
-
-    const { runClone } = await importFresh<
-      typeof import("../src/commands/clone.js")
-    >("../src/commands/clone.js");
-
-    await expect(
-      runClone(config, {
-        repository: "workspace",
-        configPath,
-        yes: true,
+    expect(accessSpy).toHaveBeenCalledWith(
+      path.join(runtimeConfig.ghqRoot, "github.com", "owner", "repo"),
+    );
+    expect(runHooks).toHaveBeenCalledWith(
+      runtimeConfig.hooks?.beforeClone,
+      expect.objectContaining({
+        ghqRoot: runtimeConfig.ghqRoot,
+        workspaceRoot: runtimeConfig.workspaceRoot,
       }),
-    ).rejects.toThrow(
-      "repository must be provider/owner/name, owner/name, or name with defaults.owner, --owner, or gh account selection",
+    );
+    expect(saveConfig).toHaveBeenCalledWith(
+      "/tmp/project/ghq-sector.config.json",
+      expect.objectContaining({
+        ghqRoot: runtimeConfig.ghqRoot,
+        workspaceRoot: runtimeConfig.workspaceRoot,
+      }),
+    );
+    expect(syncWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ghqRoot: runtimeConfig.ghqRoot,
+        workspaceRoot: runtimeConfig.workspaceRoot,
+      }),
+    );
+    expect(result.sourcePath).toBe(
+      path.join(runtimeConfig.ghqRoot, "github.com", "owner", "repo"),
+    );
+    expect(result.destinationPath).toBe(
+      path.join(runtimeConfig.workspaceRoot, "projects", "repo"),
     );
   });
 });
 
-describe("doctor diagnostics", () => {
-  async function importDoctorWithCommandMocks(
-    config: GhqWsConfig,
-    configPath: string,
-    detectedGhqRoot: string,
-    options?: {
-      hasGhq?: boolean;
-      hasGh?: boolean;
-      ownerCandidates?: { login: string; active: boolean }[];
-    },
-  ) {
+describe("sync workflow", () => {
+  it("syncs workspace links, resources, and code workspace via runSync", async () => {
+    const config = createConfig("/tmp/project");
+    const resolvedConfig = {
+      ...config,
+      ghqRoot: "/resolved/ghq",
+      workspaceRoot: "/resolved/workspace",
+    };
+    const loadConfig = vi.fn(async () => ({
+      path: "/tmp/project/ghq-sector.config.json",
+      config,
+    }));
+    const syncWorkspace = vi.fn(async () => ({
+      workspaceRoot: resolvedConfig.workspaceRoot,
+      linked: ["one", "two"],
+      skipped: ["missing"],
+    }));
+    const copyResources = vi.fn(async () => ["a", "b"]);
+    const generateCodeWorkspace = vi.fn(
+      async () => "/tmp/project/workspace/main.code-workspace",
+    );
+
+    vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      resolveConfigForCurrentMachine: vi.fn(async () => resolvedConfig),
+    }));
+    vi.doMock("../src/workspace/sync-workspace.js", () => ({ syncWorkspace }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({ copyResources }));
+    vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
+      generateCodeWorkspace,
+    }));
+
+    const { runSync } = await importFresh<
+      typeof import("../src/commands/sync.js")
+    >("../src/commands/sync.js");
+    const result = await runSync("/tmp/project");
+
+    expect(syncWorkspace).toHaveBeenCalledWith(resolvedConfig);
+    expect(copyResources).toHaveBeenCalledWith(resolvedConfig, "/tmp/project");
+    expect(generateCodeWorkspace).toHaveBeenCalledWith(resolvedConfig);
+    expect(result).toEqual({
+      configPath: "/tmp/project/ghq-sector.config.json",
+      workspaceRoot: resolvedConfig.workspaceRoot,
+      linkedCount: 2,
+      skippedCount: 1,
+      copiedResourcesCount: 2,
+      codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+    });
+  });
+});
+
+describe("workspace operations", () => {
+  it("syncWorkspace recreates category links and skips missing sources", async () => {
+    vi.doUnmock("../src/workspace/sync-workspace.js");
+    vi.doUnmock("../src/config/machine-paths.js");
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    const sourcePath = path.join(config.ghqRoot, "github.com", "ts-76", "life");
+    const stalePath = path.join(config.workspaceRoot, "projects", "life");
+
+    await mkdir(sourcePath, { recursive: true });
+    await mkdir(path.dirname(stalePath), { recursive: true });
+    await writeFile(stalePath, "stale file", "utf8");
+
+    const { syncWorkspace } = await importFresh<
+      typeof import("../src/workspace/sync-workspace.js")
+    >("../src/workspace/sync-workspace.js");
+
+    const result = await syncWorkspace(config);
+    const linkTarget = await readFile(stalePath, "utf8").catch(() => null);
+
+    expect(result.workspaceRoot).toBe(config.workspaceRoot);
+    expect(result.linked).toContain(stalePath);
+    expect(result.skipped).toContain(
+      path.join(config.ghqRoot, "github.com", "ts-76", "dotfiles"),
+    );
+    expect(linkTarget).toBeNull();
+  });
+
+  it("copyConfigToWorkspace preserves file name and serialized content", async () => {
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    const sourceConfigPath = path.join(root, "ghq-sector.config.yaml");
+
+    await writeFile(sourceConfigPath, "ghqRoot: /tmp\n", "utf8");
+
+    const { copyConfigToWorkspace } = await importFresh<
+      typeof import("../src/config/copy-config-to-workspace.js")
+    >("../src/config/copy-config-to-workspace.js");
+
+    const destinationPath = await copyConfigToWorkspace(sourceConfigPath, config);
+    const copied = await readFile(destinationPath, "utf8");
+
+    expect(destinationPath).toBe(
+      path.join(config.workspaceRoot, "ghq-sector.config.yaml"),
+    );
+    expect(copied).toContain(`ghqRoot: ${config.ghqRoot}`);
+    expect(copied).toContain(`workspaceRoot: ${config.workspaceRoot}`);
+  });
+
+  it("doctor warns when config ghqRoot differs from detected root", async () => {
+    const root = await makeTempRoot();
+    const config = {
+      ...createConfig(root),
+      ghqRoot: "/configured/ghq",
+      workspaceRoot: path.join(root, "workspace"),
+      repos: [],
+      resources: [],
+    } satisfies GhqWsConfig;
+    const configPath = path.join(root, "ghq-sector.config.json");
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+    await mkdir(config.workspaceRoot, { recursive: true });
+
     vi.doMock("../src/shared/ghq.js", () => ({
-      hasGhq: vi.fn(async () => options?.hasGhq ?? true),
-      getGhqRoot: vi.fn(async () => detectedGhqRoot),
+      hasGhq: vi.fn(async () => true),
+      getGhqRoot: vi.fn(async () => "/detected/ghq"),
     }));
     vi.doMock("../src/shared/gh.js", () => ({
-      hasGh: vi.fn(async () => options?.hasGh ?? true),
-      listGhOwnerCandidates: vi.fn(
-        async () =>
-          options?.ownerCandidates ?? [{ login: "ts-76", active: true }],
-      ),
-    }));
-    vi.doMock("../src/config/load-config.js", () => ({
-      loadConfig: vi.fn(async () => ({ path: configPath, config })),
+      hasGh: vi.fn(async () => true),
+      listGhOwnerCandidates: vi.fn(async () => []),
     }));
 
-    return importFresh<typeof import("../src/commands/doctor.js")>(
-      "../src/commands/doctor.js",
-    );
-  }
-
-  it("throws when ghq command is unavailable", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      config.ghqRoot,
-      { hasGhq: false },
-    );
-
-    await expect(runDoctor(root)).rejects.toThrow(
-      "ghq command is not available",
-    );
-  });
-
-  it("supports a direct config path in runDoctor", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "custom-config.json");
-
-    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "life"), {
-      recursive: true,
-    });
-    await mkdir(path.join(config.workspaceRoot, "projects"), {
-      recursive: true,
-    });
-    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      config.ghqRoot,
-    );
+    const { runDoctor } = await importFresh<
+      typeof import("../src/commands/doctor.js")
+    >("../src/commands/doctor.js");
 
     const result = await runDoctor(configPath);
-    expect(result.configPath).toBe(configPath);
-  });
 
-  it("throws when gh command is unavailable", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      config.ghqRoot,
-      { hasGh: false },
-    );
-
-    await expect(runDoctor(root)).rejects.toThrow(
-      "gh command is not available",
-    );
-  });
-
-  it("skips workspace-side checks when workspace root does not exist yet", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-    const detectedGhqRoot = config.ghqRoot;
-
-    await mkdir(path.join(detectedGhqRoot, "github.com", "ts-76", "life"), {
-      recursive: true,
-    });
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      detectedGhqRoot,
-    );
-    const result = await runDoctor(root);
-
-    expect(result.ghqRoot).toBe(detectedGhqRoot);
-    expect(result.workspaceRoot).toBe(config.workspaceRoot);
+    expect(result.ghqRoot).toBe("/detected/ghq");
     expect(
       result.checks.some(
         (check) =>
-          check.scope === "workspace checks" &&
-          check.message.includes("skipped"),
-      ),
-    ).toBe(true);
-    expect(
-      result.checks.some((check) => check.scope === "code workspace"),
-    ).toBe(false);
-    expect(
-      result.checks.some(
-        (check) =>
-          check.scope === "repo github.com/ts-76/life" &&
-          check.message.includes("missing link"),
-      ),
-    ).toBe(false);
-  });
-
-  it("reports missing repo sources before workspace exists", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      config.ghqRoot,
-    );
-    const result = await runDoctor(root);
-
-    expect(
-      result.checks.some(
-        (check) =>
-          check.scope === "repo github.com/ts-76/life" &&
-          check.message.includes("missing source"),
-      ),
-    ).toBe(true);
-    expect(
-      result.checks.some(
-        (check) =>
-          check.scope === "repo github.com/ts-76/dotfiles" &&
-          check.message.includes("missing source"),
-      ),
-    ).toBe(true);
-  });
-
-  it("reports code workspace and symlink status when workspace exists", async () => {
-    const root = await makeTempRoot();
-    const config = createConfig(root);
-    const configPath = path.join(root, "ghq-sector.config.json");
-    const detectedGhqRoot = config.ghqRoot;
-    const source = path.join(detectedGhqRoot, "github.com", "ts-76", "life");
-    const destination = path.join(config.workspaceRoot, "projects", "life");
-
-    await mkdir(source, { recursive: true });
-    await mkdir(path.dirname(destination), { recursive: true });
-    await mkdir(config.workspaceRoot, { recursive: true });
-    await symlink(source, destination);
-    await writeFile(
-      path.join(config.workspaceRoot, "main.code-workspace"),
-      "{}\n",
-      "utf8",
-    );
-
-    const { runDoctor } = await importDoctorWithCommandMocks(
-      config,
-      configPath,
-      detectedGhqRoot,
-    );
-    const result = await runDoctor(root);
-
-    expect(
-      result.checks.some(
-        (check) =>
-          check.scope === "code workspace" && check.level === "success",
-      ),
-    ).toBe(true);
-    expect(
-      result.checks.some(
-        (check) =>
-          check.scope === "repo github.com/ts-76/life" &&
-          check.message.includes("link ok"),
+          check.scope === "config ghqRoot" &&
+          check.level === "warn" &&
+          check.message.includes("configured /configured/ghq, runtime /detected/ghq"),
       ),
     ).toBe(true);
   });

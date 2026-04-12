@@ -54,6 +54,7 @@ export function createConfig(root: string): GhqWsConfig {
 }
 
 const mockedModules = [
+  "node:fs/promises",
   "../src/config/load-config.js",
   "../src/ghq/ensure-repos.js",
   "../src/commands/sync.js",
@@ -62,6 +63,7 @@ const mockedModules = [
   "../src/hooks/run-hooks.js",
   "../src/ghq/ghq-get.js",
   "../src/config/save-config.js",
+  "../src/config/machine-paths.js",
   "../src/resources/copy-resources.js",
   "../src/shared/ghq.js",
   "../src/shared/gh.js",

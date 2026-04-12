@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
+import { resolveConfigForCurrentMachine } from "../config/machine-paths.js";
 import { saveConfig } from "../config/save-config.js";
 import type { GhqWsConfig, GhqWsRepoConfig } from "../config/schema.js";
 import { ghqGet } from "../ghq/ghq-get.js";
@@ -7,7 +8,6 @@ import { runHooks } from "../hooks/run-hooks.js";
 import { copyResources } from "../resources/copy-resources.js";
 import { resolveOwner } from "../shared/gh.js";
 import { info } from "../shared/logger.js";
-import { expandHome } from "../shared/paths.js";
 import { selectFromChoices } from "../shared/prompt.js";
 import {
   getRepoDestinationPath,
@@ -40,14 +40,15 @@ export async function runClone(
   config: GhqWsConfig,
   options: CloneOptions,
 ): Promise<CloneResult> {
-  const repo = await parseRepository(options.repository, options, config);
-  const ghqRoot = expandHome(config.ghqRoot);
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const runtimeConfig = await resolveConfigForCurrentMachine(config);
+  const repo = await parseRepository(options.repository, options, runtimeConfig);
+  const ghqRoot = runtimeConfig.ghqRoot;
+  const workspaceRoot = runtimeConfig.workspaceRoot;
   const sourcePath = getRepoSourcePath(ghqRoot, repo);
   const destinationPath = getRepoDestinationPath(workspaceRoot, repo);
   const repositoryPath = `${repo.provider}/${repo.owner}/${repo.name}`;
 
-  await runHooks(config.hooks?.beforeClone, {
+  await runHooks(runtimeConfig.hooks?.beforeClone, {
     provider: repo.provider,
     owner: repo.owner,
     repo: repo.name,
@@ -61,7 +62,7 @@ export async function runClone(
   await ghqGet(repositoryPath);
   await access(sourcePath);
 
-  await runHooks(config.hooks?.afterClone, {
+  await runHooks(runtimeConfig.hooks?.afterClone, {
     provider: repo.provider,
     owner: repo.owner,
     repo: repo.name,
@@ -73,8 +74,8 @@ export async function runClone(
   });
 
   const nextConfig: GhqWsConfig = {
-    ...config,
-    repos: upsertRepo(config.repos, repo),
+    ...runtimeConfig,
+    repos: upsertRepo(runtimeConfig.repos, repo),
   };
 
   await saveConfig(options.configPath, nextConfig);
@@ -197,18 +198,20 @@ function resolveCategory(
     return defaultCategory;
   }
 
-  throw new Error("--category is required unless defaults.category is set");
+  throw new Error(
+    "category is required (pass --category or set defaults.category in config)",
+  );
 }
 
-function upsertRepo(repos: GhqWsRepoConfig[], nextRepo: GhqWsRepoConfig) {
-  const filtered = repos.filter(
-    (repo) =>
+function upsertRepo(repos: GhqWsRepoConfig[], repo: GhqWsRepoConfig) {
+  const next = repos.filter(
+    (current) =>
       !(
-        repo.provider === nextRepo.provider &&
-        repo.owner === nextRepo.owner &&
-        repo.name === nextRepo.name
+        current.provider === repo.provider &&
+        current.owner === repo.owner &&
+        current.name === repo.name
       ),
   );
-
-  return [...filtered, nextRepo];
+  next.push(repo);
+  return next;
 }
