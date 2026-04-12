@@ -155,7 +155,7 @@ export function parseInputValue(
   switch (targetType) {
     case "number": {
       const parsed = Number(normalized);
-      return Number.isNaN(parsed) ? normalized : parsed;
+      return Number.isNaN(parsed) ? undefined : parsed;
     }
     case "boolean":
       return normalized === "true";
