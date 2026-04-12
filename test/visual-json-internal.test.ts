@@ -13,6 +13,7 @@ describe("visual json input parsing", () => {
 
   it("normalizes quoted scalar input before type coercion", () => {
     expect(parseInputValue('"42"', "number", "number")).toBe(42);
+    expect(parseInputValue('"oops"', "number", "number")).toBeUndefined();
     expect(parseInputValue("'true'", "boolean", "boolean")).toBe(true);
     expect(parseInputValue('"null"', "null", "null")).toBeNull();
     expect(parseInputValue('"tools"', "string", "string")).toBe("tools");
