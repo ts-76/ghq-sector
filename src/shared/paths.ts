@@ -22,6 +22,10 @@ export function expandHome(input: string) {
 }
 
 export function collapseHome(input: string) {
+  if (input === "~" || input.startsWith("~/")) {
+    return input;
+  }
+
   const resolved = path.resolve(input);
   const home = os.homedir();
 
