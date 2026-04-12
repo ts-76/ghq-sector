@@ -93,6 +93,45 @@ describe("apply workflow", () => {
     });
   });
 
+  it("passes a direct config path through runApply", async () => {
+    const config = createConfig("/tmp/project");
+    const directConfigPath = "/tmp/project/custom-config.json";
+
+    const loadConfig = vi.fn(async () => ({
+      path: directConfigPath,
+      config,
+    }));
+    const ensureRepos = vi.fn(async () => ({
+      fetched: [],
+      alreadyPresent: [],
+    }));
+    const runSync = vi.fn(async () => ({
+      configPath: directConfigPath,
+      workspaceRoot: "/tmp/project/workspace",
+      linkedCount: 2,
+      skippedCount: 0,
+      copiedResourcesCount: 0,
+      codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+    }));
+    const copyConfigToWorkspace = vi.fn(async () => directConfigPath);
+
+    vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
+    vi.doMock("../src/ghq/ensure-repos.js", () => ({ ensureRepos }));
+    vi.doMock("../src/commands/sync.js", () => ({ runSync }));
+    vi.doMock("../src/config/copy-config-to-workspace.js", () => ({
+      copyConfigToWorkspace,
+    }));
+
+    const { runApply } = await importFresh<
+      typeof import("../src/commands/apply.js")
+    >("../src/commands/apply.js");
+
+    await runApply(directConfigPath);
+
+    expect(loadConfig).toHaveBeenCalledWith(directConfigPath);
+    expect(runSync).toHaveBeenCalledWith(directConfigPath);
+  });
+
   it("ghq gets only missing repos in ensureRepos and runs clone hooks around them", async () => {
     const root = await makeTempRoot();
     const config = createConfig(root);
@@ -550,6 +589,29 @@ describe("doctor diagnostics", () => {
     await expect(runDoctor(root)).rejects.toThrow(
       "ghq command is not available",
     );
+  });
+
+  it("supports a direct config path in runDoctor", async () => {
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    const configPath = path.join(root, "custom-config.json");
+
+    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "life"), {
+      recursive: true,
+    });
+    await mkdir(path.join(config.workspaceRoot, "projects"), {
+      recursive: true,
+    });
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const { runDoctor } = await importDoctorWithCommandMocks(
+      config,
+      configPath,
+      config.ghqRoot,
+    );
+
+    const result = await runDoctor(configPath);
+    expect(result.configPath).toBe(configPath);
   });
 
   it("throws when gh command is unavailable", async () => {
