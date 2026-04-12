@@ -1,7 +1,7 @@
 {
   "name": "ghq-sector",
   "version": "0.1.4",
-  "description": "CLI for organizing ghq-managed repositories into a symlinked workspace with code-workspace generation and a local config editor.",
+  "description": "CLI for AI-assisted and human-curated ghq workspaces with categorized symlinks, code-workspace generation, and a local config editor.",
   "license": "MIT",
   "author": "ts-76",
   "private": false,
@@ -10,7 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/ts-76/ghq-sector.git"
   },
-  "homepage": "https://github.com/ts-76/ghq-sector#readme",
+  "homepage": "https://npmx.dev/package/ghq-sector",
   "bugs": {
     "url": "https://github.com/ts-76/ghq-sector/issues"
   },
@@ -41,7 +41,17 @@
     "ghq",
     "workspace",
     "cli",
-    "vscode"
+    "developer-tools",
+    "ai",
+    "ai-agent",
+    "ai-agents",
+    "coding-assistant",
+    "codex",
+    "claude-code",
+    "copilot",
+    "repo-management",
+    "vscode",
+    "visual-json"
   ],
   "dependencies": {
     "cac": "^6.7.14",

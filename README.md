@@ -1,14 +1,31 @@
 # ghq-sector
 
-Organize `ghq`-managed repositories into category-based workspaces with symlinks, a generated VS Code `.code-workspace` file, and a local config editor.
+You want to work across many repositories with AI agents. But how do you organize them?
+
+- **Manage directories by hand?** Hard to reproduce on another machine.
+- **Git submodules?** Even more painful.
+- **Just use `ghq`?** Great for cloning — but as repos pile up, the flat layout becomes hard to navigate.
+
+`ghq-sector` solves this by layering **categorized workspace views** on top of `ghq`. Your clones stay where `ghq` put them. On top of that, `ghq-sector` builds a structured working area with category directories, symlinks, and a generated VS Code `.code-workspace` — reproducible across machines with a single config file.
+
+![ghq-sector UI demo](./ghq-sector.gif)
 
 **Language:** English | [日本語](./docs/README.ja.md)
+
+## What it does
+
+`ghq-sector` helps you:
+
+- keep clones managed by `ghq` (no duplication, no submodules)
+- organize repos into human-readable categories (`projects`, `tools`, `docs`, …)
+- generate a `.code-workspace` file so editors and AI agents see a clean, structured workspace
+- manage everything visually or as raw JSON/YAML — and reproduce it anywhere
 
 ## Requirements
 
 - Node.js 20+
 - `ghq`
-- `gh`
+- `gh` for GitHub account-aware repo suggestions in the editor and shorthand owner flows
 
 ## Install
 
@@ -26,40 +43,57 @@ npm install -g ghq-sector
 gsec --help
 ```
 
+> [!NOTE]
+> `gsec` is the installed shorthand command. When you run `ghq-sector` through `npx` or `bunx`, use `ghq-sector ...` instead. `gsec` becomes available after a local or global installation that exposes the package binaries.
+
+Package pages:
+
+- npm: <https://www.npmjs.com/package/ghq-sector>
+- npmx: <https://npmx.dev/package/ghq-sector>
+
 ## Quick start
 
-Create a config file and workspace template in the current directory:
+Create a config and workspace structure:
 
 ```bash
 gsec init --yes
 ```
 
-Add a repository and sync the workspace:
+Open the visual config editor UI:
+
+```bash
+gsec edit
+```
+
+The editor is built with [visual-json](https://github.com/vercel-labs/visual-json) and provides:
+
+- visual and raw config editing
+- schema-aware validation
+- workspace preview before apply
+- save and apply actions
+- doctor refresh
+- repository suggestions from `gh` when available
+
+Add a repository and sync from the CLI:
 
 ```bash
 gsec clone owner/repo
 gsec sync
 ```
 
-Check environment and config health:
+Check configuration and workspace health:
 
 ```bash
 gsec doctor
 ```
 
-Open the local editor:
-
-```bash
-gsec edit
-```
-
 ## What it creates
 
-- `ghq-ws.config.json` or `ghq-ws.config.yaml`
-- `workspace-template/`
+- `ghq-sector.config.json` or `ghq-sector.config.yaml`
 - category directories under `workspaceRoot`
-- symlinks to repositories managed by `ghq`
-- a VS Code `.code-workspace` file
+- symlinks pointing to repositories managed by `ghq`
+- copied resources declared in `resources`
+- a generated VS Code `.code-workspace` file when enabled
 
 Default categories:
 
@@ -71,7 +105,7 @@ Default categories:
 
 ### `gsec init`
 
-Create a config file, workspace template, and category directories.
+Create a config file, prepare the workspace root, create category directories, and optionally open the editor immediately.
 
 ```bash
 gsec init
@@ -82,13 +116,13 @@ gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 Options:
 
 - `--ghq-root <path>`: set the `ghq` root directory
-- `--workspace-root <path>`: set the generated workspace root
+- `--workspace-root <path>`: set the workspace root
 - `--format <json|yaml>`: choose the config format
 - `--yes`: skip prompts and use defaults
 
 ### `gsec sync`
 
-Regenerate symlinks, copied resources, and the `.code-workspace` file from the current config.
+Regenerate symlinks, copy configured resources, and regenerate the `.code-workspace` file from the current config.
 
 ```bash
 gsec sync
@@ -96,7 +130,7 @@ gsec sync
 
 ### `gsec clone`
 
-Clone a repository with `ghq`, add it to the config, and sync the workspace.
+Clone a repository with `ghq`, append it to the config, and sync the workspace.
 
 ```bash
 gsec clone owner/repo
@@ -119,7 +153,7 @@ Options:
 
 ### `gsec doctor`
 
-Validate environment setup and config consistency.
+Validate environment setup, config consistency, resource paths, and workspace health.
 
 ```bash
 gsec doctor
@@ -128,18 +162,18 @@ gsec doctor
 Checks include:
 
 - `ghq` and `gh` availability
-- config validity
-- category references in repositories
-- workspace resources and generated files
-- symlink and source-path health for an existing workspace
+- config validity and category consistency
+- resource source and target paths
+- code-workspace generation status
+- symlink and source-path health for existing repos
 
 ### `gsec edit`
 
-Start the local config editor UI.
+Start the local config editor UI. The editor is built with [visual-json](https://github.com/vercel-labs/visual-json).
 
 ```bash
 gsec edit
-gsec edit --config ./ghq-ws.config.json --no-open
+gsec edit --config ./ghq-sector.config.json --no-open
 gsec edit --host 0.0.0.0 --port 4173
 ```
 
@@ -150,21 +184,12 @@ Options:
 - `--port <port>`: port to bind the editor server to
 - `--no-open`: do not open a browser automatically
 
-The editor includes:
-
-- visual and raw config editing
-- schema-aware validation
-- workspace preview before apply
-- save and apply actions
-- doctor refresh
-- repository suggestions from `gh` when available
-
 ## Config file
 
-`gsec init` creates `ghq-ws.config.json` by default.
-Use `--format yaml` to create `ghq-ws.config.yaml` instead.
+`gsec init` creates `ghq-sector.config.json` by default.
+Use `--format yaml` to create `ghq-sector.config.yaml` instead.
 
-Typical config fields:
+Typical fields:
 
 - `ghqRoot`
 - `workspaceRoot`
@@ -173,18 +198,13 @@ Typical config fields:
 - `repos`
 - `resources`
 - `hooks`
+- `editor`
 
-## Maintainer release flow
+## AI workflow angle
 
-Project maintenance is PR-only:
+`ghq-sector` is not an autonomous agent — it is the workspace layer *around* your AI workflow.
 
-1. Open a pull request against `main`
-2. Wait for `verify`, `audit`, and `codeql (javascript-typescript)` to pass
-3. Merge the pull request
-4. Let the `Release` workflow create the GitHub Release and publish to npm from `main`
-
-Use conventional commits (`feat:`, `fix:`, etc.) so the release workflow can determine the next version automatically.
-Avoid direct pushes to `main` during normal operation.
+AI tools work best when your repositories are easy to discover and grouped by purpose. `ghq-sector` gives agents a stable, categorized filesystem to operate in, while keeping humans in control of what goes where.
 
 ## Support
 
