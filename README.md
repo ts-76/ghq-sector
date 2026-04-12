@@ -19,7 +19,7 @@ You want to work across many repositories with AI agents. But how do you organiz
 - keep clones managed by `ghq` (no duplication, no submodules)
 - organize repos into human-readable categories (`projects`, `tools`, `docs`, …)
 - generate a `.code-workspace` file so editors and AI agents see a clean, structured workspace
-- manage everything visually or as raw JSON/YAML — and reproduce it anywhere
+- manage everything visually or as raw JSON — and reproduce it anywhere
 
 ## Requirements
 
@@ -53,43 +53,25 @@ Package pages:
 
 ## Quick start
 
-Create a config and workspace structure:
+Get started without installing:
 
 ```bash
-gsec init --yes
+npx ghq-sector init
+# or
+bunx ghq-sector init
 ```
 
-Open the visual config editor UI:
+Then open the visual config editor to manage your workspace:
 
 ```bash
 gsec edit
 ```
 
-The editor is built with [visual-json](https://github.com/vercel-labs/visual-json) and provides:
-
-- visual and raw config editing
-- schema-aware validation
-- workspace preview before apply
-- save and apply actions
-- doctor refresh
-- repository suggestions from `gh` when available
-
-Add a repository and sync from the CLI:
-
-```bash
-gsec clone owner/repo
-gsec sync
-```
-
-Check configuration and workspace health:
-
-```bash
-gsec doctor
-```
+The editor is built with [visual-json](https://github.com/vercel-labs/visual-json) — edit your config visually or as raw JSON, preview changes, and apply them in one place. See [Commands](#commands) for the full CLI reference.
 
 ## What it creates
 
-- `ghq-sector.config.json` or `ghq-sector.config.yaml`
+- `ghq-sector.config.json`
 - category directories under `workspaceRoot`
 - symlinks pointing to repositories managed by `ghq`
 - copied resources declared in `resources`
@@ -109,7 +91,6 @@ Create a config file, prepare the workspace root, create category directories, a
 
 ```bash
 gsec init
-gsec init --format yaml
 gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 ```
 
@@ -117,7 +98,6 @@ Options:
 
 - `--ghq-root <path>`: set the `ghq` root directory
 - `--workspace-root <path>`: set the workspace root
-- `--format <json|yaml>`: choose the config format
 - `--yes`: skip prompts and use defaults
 
 ### `gsec sync`
@@ -186,8 +166,7 @@ Options:
 
 ## Config file
 
-`gsec init` creates `ghq-sector.config.json` by default.
-Use `--format yaml` to create `ghq-sector.config.yaml` instead.
+`gsec init` creates `ghq-sector.config.json`.
 
 Typical fields:
 
