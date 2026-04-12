@@ -37,6 +37,61 @@ describe("config loading", () => {
   });
 });
 
+describe("init workflow", () => {
+  it("passes the created config path to runEdit when opening the editor", async () => {
+    const root = await makeTempRoot();
+    const cwd = path.join(root, "config-home");
+    const ghqRoot = path.join(root, "ghq");
+    const workspaceRoot = path.join(root, "workspace");
+    const runEdit = vi.fn(async () => undefined);
+
+    await mkdir(cwd, { recursive: true });
+
+    vi.doMock("../src/shared/gh.js", () => ({
+      listGhOwnerCandidates: vi.fn(async () => [
+        { login: "ts-76", active: true },
+      ]),
+    }));
+    vi.doMock("../src/shared/prompt.js", () => ({
+      prompt: vi.fn(async () => "y"),
+      selectFromChoices: vi.fn(async () => ({ index: 0 })),
+    }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({
+      copyResources: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
+      generateCodeWorkspace: vi.fn(async () => null),
+    }));
+    vi.doMock("../src/hooks/run-hooks.js", () => ({
+      runHooks: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/commands/edit.js", () => ({
+      runEdit,
+    }));
+
+    const previousCwd = process.cwd();
+    process.chdir(cwd);
+
+    try {
+      const { runInit } = await importFresh<
+        typeof import("../src/commands/init.js")
+      >("../src/commands/init.js");
+
+      await runInit({
+        ghqRoot,
+        workspaceRoot,
+        format: "json",
+      });
+
+      expect(runEdit).toHaveBeenCalledWith({
+        config: path.join(cwd, "ghq-sector.config.json"),
+      });
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+});
+
 describe("apply workflow", () => {
   it("returns fetched/already-present repos and sync/copy results via runApply", async () => {
     const config = createConfig("/tmp/project");

@@ -57,12 +57,16 @@ const mockedModules = [
   "../src/config/load-config.js",
   "../src/ghq/ensure-repos.js",
   "../src/commands/sync.js",
+  "../src/commands/edit.js",
   "../src/config/copy-config-to-workspace.js",
   "../src/hooks/run-hooks.js",
   "../src/ghq/ghq-get.js",
   "../src/config/save-config.js",
+  "../src/resources/copy-resources.js",
   "../src/shared/ghq.js",
   "../src/shared/gh.js",
+  "../src/shared/prompt.js",
+  "../src/workspace/generate-code-workspace.js",
 ] as const;
 
 export async function importFresh<T>(specifier: string): Promise<T> {
