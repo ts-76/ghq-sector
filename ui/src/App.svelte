@@ -844,7 +844,7 @@ function parseRawValue() {
               <span>{addingRepo ? 'Adding…' : 'Add selected repo'}</span>
             </button>
           {:else}
-            <p class="muted">gh が使えないので、空の repo テンプレート追加のみ有効です。</p>
+            <p class="muted">gh is not available. Only adding an empty repo template is enabled.</p>
           {/if}
         </div>
       </details>
