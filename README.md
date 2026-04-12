@@ -1,5 +1,7 @@
 # ghq-sector
 
+[![npm version](https://img.shields.io/npm/v/ghq-sector?logo=npm&label=npm)](https://www.npmjs.com/package/ghq-sector)
+
 You want to work across many repositories with AI agents. But how do you organize them?
 
 - **Manage directories by hand?** Hard to reproduce on another machine.
@@ -125,6 +127,21 @@ This repository also includes reusable skills under `skills/` for AI agents and 
 | `ghq-sector-cli` | Guides an agent through the normal `gsec` / `ghq-sector` command flow. | Use when you want to set up, edit, clone, sync, doctor, or apply a ghq-sector workspace through the CLI. |
 | `ghq-sector-manual-workspace` | Explains how to build an equivalent categorized workspace manually without installing the CLI. | Use when an agent or user cannot install `ghq-sector` and needs mkdir/symlink/manual JSON instructions instead. |
 
+### Install these skills
+
+Add the skills from this repository with:
+
+```bash
+npx skills add https://github.com/ts-76/ghq-sector.git
+```
+
+Installed skills:
+
+- `ghq-sector-cli`
+- `ghq-sector-manual-workspace`
+
+Use `ghq-sector-cli` when the agent can run the CLI. Use `ghq-sector-manual-workspace` when the agent cannot install or execute `ghq-sector` and must reproduce the workspace with plain shell operations.
+
 ## Commands
 
 ### `gsec init`
@@ -149,6 +166,16 @@ Regenerate symlinks, copy configured resources, and regenerate the `.code-worksp
 ```bash
 gsec sync
 ```
+
+### `gsec apply`
+
+Apply the full config state: ensure missing repositories exist in `ghq`, sync the workspace, and copy the config file into the workspace root.
+
+```bash
+gsec apply
+```
+
+Use this when you want the CLI equivalent of the editor's **Apply** action.
 
 ### `gsec clone`
 

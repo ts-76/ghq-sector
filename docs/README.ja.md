@@ -1,5 +1,7 @@
 # ghq-sector
 
+[![npm version](https://img.shields.io/npm/v/ghq-sector?logo=npm&label=npm)](https://www.npmjs.com/package/ghq-sector)
+
 AI agent と一緒にたくさんのリポジトリで作業したい。でも、どうやって管理する？
 
 - **ディレクトリを自分で作って整理する？** 別のマシンに持ち出しにくい。
@@ -112,6 +114,21 @@ gsec edit
 | `ghq-sector-cli` | 通常の `gsec` / `ghq-sector` コマンドフローを案内する skill | CLI 経由で workspace の初期化、編集、clone、sync、doctor、apply を行いたいとき |
 | `ghq-sector-manual-workspace` | CLI を使わずに同等の categorized workspace を手動構築する手順をまとめた skill | `ghq-sector` をインストールできない環境で、mkdir / symlink / 手書き JSON による構築手順が必要なとき |
 
+### skill の追加方法
+
+この repository から skill を追加するには、次を実行します。
+
+```bash
+npx skills add https://github.com/ts-76/ghq-sector.git
+```
+
+追加される skill:
+
+- `ghq-sector-cli`
+- `ghq-sector-manual-workspace`
+
+CLI を実行できる場合は `ghq-sector-cli` を、`ghq-sector` をインストール・実行できず plain shell operation で workspace を再現したい場合は `ghq-sector-manual-workspace` を使ってください。
+
 ## コマンド
 
 ### `gsec init`
@@ -136,6 +153,16 @@ gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 ```bash
 gsec sync
 ```
+
+### `gsec apply`
+
+config の完全な状態を反映します。`ghq` 内に不足している repository を揃え、workspace を sync し、config file を workspace root にコピーします。
+
+```bash
+gsec apply
+```
+
+editor の **Apply** 操作と同等の処理を CLI から実行したいときに使います。
 
 ### `gsec clone`
 

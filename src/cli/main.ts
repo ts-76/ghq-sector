@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { cac } from "cac";
+import { runApply } from "../commands/apply.js";
 import { runClone } from "../commands/clone.js";
 import { runDoctor } from "../commands/doctor.js";
 import { runEdit } from "../commands/edit.js";
@@ -30,6 +31,12 @@ cli
 cli.command("sync", "sync workspace from config").action(async () => {
   await runSync();
 });
+
+cli
+  .command("apply", "clone missing repositories and sync workspace")
+  .action(async () => {
+    await runApply();
+  });
 
 cli
   .command("clone <repository>", "clone repository with ghq and sync workspace")
