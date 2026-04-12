@@ -1,10 +1,9 @@
 import { chmod, copyFile, cp, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { GhqWsConfig } from "../config/schema.js";
-import { expandHome } from "../shared/paths.js";
 
 export async function copyResources(config: GhqWsConfig, cwd = process.cwd()) {
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const workspaceRoot = config.workspaceRoot;
   const copied: string[] = [];
 
   for (const resource of config.resources ?? []) {

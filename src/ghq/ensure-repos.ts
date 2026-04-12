@@ -1,7 +1,6 @@
 import { access } from "node:fs/promises";
 import type { GhqWsConfig, GhqWsRepoConfig } from "../config/schema.js";
 import { runHooks } from "../hooks/run-hooks.js";
-import { expandHome } from "../shared/paths.js";
 import {
   getRepoDestinationPath,
   getRepoSourcePath,
@@ -16,8 +15,8 @@ export interface EnsureReposResult {
 export async function ensureRepos(
   config: GhqWsConfig,
 ): Promise<EnsureReposResult> {
-  const ghqRoot = expandHome(config.ghqRoot);
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const ghqRoot = config.ghqRoot;
+  const workspaceRoot = config.workspaceRoot;
   const fetched: string[] = [];
   const alreadyPresent: string[] = [];
 

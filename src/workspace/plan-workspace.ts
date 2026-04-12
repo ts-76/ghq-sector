@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
+import { getRuntimePaths } from "../config/machine-paths.js";
 import type { GhqWsConfig } from "../config/schema.js";
-import { expandHome } from "../shared/paths.js";
 import {
   getRepoDestinationPath,
   getRepoSourcePath,
@@ -46,7 +46,7 @@ export interface WorkspacePlan {
 }
 
 export function buildCodeWorkspacePlan(config: GhqWsConfig): CodeWorkspacePlan {
-  const workspaceRoot = expandHome(config.workspaceRoot);
+  const workspaceRoot = config.workspaceRoot;
   const enabled = config.editor?.codeWorkspace?.enabled ?? true;
   const filename =
     config.editor?.codeWorkspace?.filename ??
@@ -79,11 +79,17 @@ export async function planWorkspace(
   config: GhqWsConfig,
   cwd = process.cwd(),
 ): Promise<WorkspacePlan> {
-  const workspaceRoot = expandHome(config.workspaceRoot);
-  const ghqRoot = expandHome(config.ghqRoot);
+  const runtimePaths = await getRuntimePaths(config);
+  const workspaceRoot = runtimePaths.resolvedWorkspaceRoot;
+  const ghqRoot = runtimePaths.resolvedGhqRoot;
+  const runtimeConfig = {
+    ...config,
+    ghqRoot,
+    workspaceRoot,
+  };
 
   const repoLinks = await Promise.all(
-    [...config.repos]
+    [...runtimeConfig.repos]
       .sort((left, right) => {
         const categoryCompare = left.category.localeCompare(right.category);
         if (categoryCompare !== 0) return categoryCompare;
@@ -116,7 +122,7 @@ export async function planWorkspace(
       }),
   );
 
-  const resources = (config.resources ?? []).map(
+  const resources = (runtimeConfig.resources ?? []).map(
     (resource) =>
       ({
         from: path.resolve(cwd, resource.from),
@@ -133,7 +139,7 @@ export async function planWorkspace(
     workspaceRoot,
     repoLinks,
     resources,
-    codeWorkspace: buildCodeWorkspacePlan(config),
+    codeWorkspace: buildCodeWorkspacePlan(runtimeConfig),
     summary: {
       totalRepos: repoLinks.length,
       linkableRepos,

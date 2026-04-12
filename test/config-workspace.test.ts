@@ -1,13 +1,10 @@
 import { mkdir } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createConfigTemplate } from "../src/config/template.js";
 import { parseConfig } from "../src/config/validate-config.js";
-import {
-  buildCodeWorkspacePlan,
-  planWorkspace,
-} from "../src/workspace/plan-workspace.js";
-import { createConfig, makeTempRoot } from "./helpers.js";
+import { createConfig, importFresh, makeTempRoot } from "./helpers.js";
 
 describe("config validation", () => {
   it("rejects repos whose category does not exist in categories", () => {
@@ -106,17 +103,80 @@ describe("config validation", () => {
   });
 });
 
+describe("portable path helpers", () => {
+  it("collapses current-home absolute roots back to tilde form", async () => {
+    const { normalizePortableConfig } = await import(
+      "../src/config/machine-paths.js"
+    );
+    const home = os.homedir();
+    const config = createConfig(home);
+    const absoluteConfig = {
+      ...config,
+      ghqRoot: path.join(home, "ghq"),
+      workspaceRoot: path.join(home, "workspace", "sub"),
+    };
+
+    expect(normalizePortableConfig(absoluteConfig)).toMatchObject({
+      ghqRoot: "~/ghq",
+      workspaceRoot: "~/workspace/sub",
+    });
+  });
+
+  it("remaps foreign home paths to the current machine and prefers detected ghq root", async () => {
+    vi.doMock("../src/shared/ghq.js", () => ({
+      getGhqRoot: vi.fn(async () => "/opt/ghq"),
+    }));
+
+    const { getRuntimePaths } = await import("../src/config/machine-paths.js");
+    const runtimePaths = await getRuntimePaths({
+      ...createConfig("/tmp/project"),
+      ghqRoot: "/Users/other/ghq",
+      workspaceRoot: "/Users/other/workspace/sub",
+    });
+
+    expect(runtimePaths).toMatchObject({
+      configuredGhqRoot: "/Users/other/ghq",
+      configuredWorkspaceRoot: "/Users/other/workspace/sub",
+      resolvedGhqRoot: "/opt/ghq",
+      resolvedWorkspaceRoot: path.join(os.homedir(), "workspace", "sub"),
+    });
+  });
+
+  it("remaps a foreign absolute home root to the current home root", async () => {
+    const { remapPortableHomePath } = await import("../src/shared/paths.js");
+
+    expect(remapPortableHomePath("/Users/other")).toBe(os.homedir());
+  });
+});
+
 describe("workspace planning", () => {
   it("marks missing repos as fetch and sorts links/folders by category and name", async () => {
+    vi.doUnmock("../src/config/machine-paths.js");
+    vi.doUnmock("../src/shared/ghq.js");
     const root = await makeTempRoot();
-    const config = createConfig(root);
+    const config = {
+      ...createConfig(root),
+      ghqRoot: "/Users/other/ghq",
+      workspaceRoot: "/Users/other/workspace/sub",
+    };
+    const runtimeGhqRoot = path.join(root, "runtime-ghq");
 
-    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "life"), {
+    await mkdir(path.join(runtimeGhqRoot, "github.com", "ts-76", "life"), {
       recursive: true,
     });
 
-    const plan = await planWorkspace(config);
-    const workspacePlan = buildCodeWorkspacePlan(config);
+    vi.doMock("../src/shared/ghq.js", () => ({
+      getGhqRoot: vi.fn(async () => runtimeGhqRoot),
+    }));
+
+    const workspaceModule = await importFresh<
+      typeof import("../src/workspace/plan-workspace.js")
+    >("../src/workspace/plan-workspace.js");
+    const plan = await workspaceModule.planWorkspace(config);
+    const workspacePlan = workspaceModule.buildCodeWorkspacePlan({
+      ...config,
+      workspaceRoot: path.join(os.homedir(), "workspace", "sub"),
+    });
 
     expect(plan.summary).toEqual({
       totalRepos: 2,
@@ -125,7 +185,10 @@ describe("workspace planning", () => {
       resourcesCount: 0,
     });
     expect(
-      plan.repoLinks.map((repo) => ({ name: repo.name, status: repo.status })),
+      plan.repoLinks.map((repo: { name: string; status: string }) => ({
+        name: repo.name,
+        status: repo.status,
+      })),
     ).toEqual([
       { name: "life", status: "ready" },
       { name: "dotfiles", status: "fetch" },
