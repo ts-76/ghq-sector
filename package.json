@@ -1,7 +1,7 @@
 {
   "name": "ghq-sector",
   "version": "0.1.4",
-  "description": "CLI for AI-assisted and human-curated ghq workspaces with categorized symlinks, code-workspace generation, and a local config editor.",
+  "description": "Node.js CLI for AI-assisted and human-curated ghq workspaces with categorized symlinks, portable config paths, and a local config editor.",
   "license": "MIT",
   "author": "ts-76",
   "private": false,
@@ -54,7 +54,7 @@
     "visual-json"
   ],
   "dependencies": {
-    "cac": "^6.7.14",
+    "cac": "^7.0.0",
     "valibot": "^1.1.0",
     "yaml": "^2.8.1"
   },
