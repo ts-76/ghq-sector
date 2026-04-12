@@ -26,7 +26,10 @@ export async function runApply(cwd = process.cwd()): Promise<ApplyResult> {
   };
   const ensuredRepos = await ensureRepos(runtimeConfig);
   const syncResult = await runSync(cwd, runtimeConfig);
-  const copiedConfigPath = await copyConfigToWorkspace(loaded.path, runtimeConfig);
+  const copiedConfigPath = await copyConfigToWorkspace(
+    loaded.path,
+    runtimeConfig,
+  );
 
   return {
     ...syncResult,

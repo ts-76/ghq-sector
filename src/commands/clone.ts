@@ -41,7 +41,11 @@ export async function runClone(
   options: CloneOptions,
 ): Promise<CloneResult> {
   const runtimeConfig = await resolveConfigForCurrentMachine(config);
-  const repo = await parseRepository(options.repository, options, runtimeConfig);
+  const repo = await parseRepository(
+    options.repository,
+    options,
+    runtimeConfig,
+  );
   const ghqRoot = runtimeConfig.ghqRoot;
   const workspaceRoot = runtimeConfig.workspaceRoot;
   const sourcePath = getRepoSourcePath(ghqRoot, repo);

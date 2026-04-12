@@ -1,5 +1,5 @@
-import os from "node:os";
 import { mkdir } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createConfigTemplate } from "../src/config/template.js";

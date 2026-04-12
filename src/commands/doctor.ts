@@ -1,7 +1,7 @@
 import { access, lstat, readlink } from "node:fs/promises";
 import path from "node:path";
-import { getRuntimePaths } from "../config/machine-paths.js";
 import { loadConfig } from "../config/load-config.js";
+import { getRuntimePaths } from "../config/machine-paths.js";
 import type { GhqWsConfig } from "../config/schema.js";
 import { hasGh, listGhOwnerCandidates } from "../shared/gh.js";
 import { getGhqRoot, hasGhq } from "../shared/ghq.js";
@@ -277,13 +277,13 @@ function checkDefaults(
   }
 
   if (!category) {
-    push("info", "defaults.category", "unset (clone will prompt or require --category)");
-  } else if (!config.categories.includes(category)) {
     push(
-      "warn",
+      "info",
       "defaults.category",
-      `not listed in categories (${category})`,
+      "unset (clone will prompt or require --category)",
     );
+  } else if (!config.categories.includes(category)) {
+    push("warn", "defaults.category", `not listed in categories (${category})`);
   } else {
     push("success", "defaults.category", `ok (${category})`);
   }

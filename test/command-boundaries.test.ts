@@ -355,9 +355,10 @@ describe("clone workflow", () => {
     }));
     vi.doMock("../src/hooks/run-hooks.js", () => ({ runHooks }));
     vi.doMock("node:fs/promises", async () => {
-      const actual = await vi.importActual<typeof import("node:fs/promises")>(
-        "node:fs/promises",
-      );
+      const actual =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
       return {
         ...actual,
         access: accessSpy,
@@ -497,7 +498,10 @@ describe("workspace operations", () => {
       typeof import("../src/config/copy-config-to-workspace.js")
     >("../src/config/copy-config-to-workspace.js");
 
-    const destinationPath = await copyConfigToWorkspace(sourceConfigPath, config);
+    const destinationPath = await copyConfigToWorkspace(
+      sourceConfigPath,
+      config,
+    );
     const copied = await readFile(destinationPath, "utf8");
 
     expect(destinationPath).toBe(
@@ -542,7 +546,9 @@ describe("workspace operations", () => {
         (check) =>
           check.scope === "config ghqRoot" &&
           check.level === "warn" &&
-          check.message.includes("configured /configured/ghq, runtime /detected/ghq"),
+          check.message.includes(
+            "configured /configured/ghq, runtime /detected/ghq",
+          ),
       ),
     ).toBe(true);
   });

@@ -1,6 +1,6 @@
 import path from "node:path";
-import { resolveConfigForCurrentMachine } from "../config/machine-paths.js";
 import { loadConfig } from "../config/load-config.js";
+import { resolveConfigForCurrentMachine } from "../config/machine-paths.js";
 import type { GhqWsConfig } from "../config/schema.js";
 import { copyResources } from "../resources/copy-resources.js";
 import { info, success, warn } from "../shared/logger.js";
@@ -23,9 +23,13 @@ export async function runSync(
   const loaded = await loadConfig(cwd);
   info(`loaded config: ${loaded.path}`);
 
-  const config = runtimeConfig ?? (await resolveConfigForCurrentMachine(loaded.config));
+  const config =
+    runtimeConfig ?? (await resolveConfigForCurrentMachine(loaded.config));
   const result = await syncWorkspace(config);
-  const copiedResources = await copyResources(config, path.dirname(loaded.path));
+  const copiedResources = await copyResources(
+    config,
+    path.dirname(loaded.path),
+  );
   const codeWorkspacePath = await generateCodeWorkspace(config);
 
   success(`synced workspace: ${result.workspaceRoot}`);

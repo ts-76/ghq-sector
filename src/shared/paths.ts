@@ -52,7 +52,10 @@ export function remapPortableHomePath(input: string) {
   return path.join(home, relativeToForeignHome);
 }
 
-export function resolveRuntimePaths(config: GhqWsConfig, detectedGhqRoot?: string) {
+export function resolveRuntimePaths(
+  config: GhqWsConfig,
+  detectedGhqRoot?: string,
+) {
   return {
     configuredGhqRoot: config.ghqRoot,
     configuredWorkspaceRoot: config.workspaceRoot,

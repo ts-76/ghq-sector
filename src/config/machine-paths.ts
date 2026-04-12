@@ -1,10 +1,10 @@
-import type { GhqWsConfig } from "./schema.js";
 import { getGhqRoot } from "../shared/ghq.js";
 import {
   applyResolvedRuntimePaths,
   collapseHome,
   resolveRuntimePaths,
 } from "../shared/paths.js";
+import type { GhqWsConfig } from "./schema.js";
 
 export async function resolveConfigForCurrentMachine(
   config: GhqWsConfig,
