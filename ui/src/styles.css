@@ -67,8 +67,8 @@ select {
 }
 
 select option {
-  background: #1e1e1e;
-  color: #e4e4e7;
+  background: var(--bg-base);
+  color: var(--text);
 }
 
 textarea {
