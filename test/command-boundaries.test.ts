@@ -135,6 +135,61 @@ describe("init workflow", () => {
       process.chdir(previousCwd);
     }
   });
+
+  it("uses runtime-expanded workspace roots for init filesystem operations", async () => {
+    const root = await makeTempRoot();
+    const cwd = path.join(root, "config-home");
+    const copyResources = vi.fn(async () => []);
+    const generateCodeWorkspace = vi.fn(async () => null);
+
+    await mkdir(cwd, { recursive: true });
+
+    vi.doMock("../src/shared/gh.js", () => ({
+      listGhOwnerCandidates: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({
+      copyResources,
+    }));
+    vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
+      generateCodeWorkspace,
+    }));
+    vi.doMock("../src/hooks/run-hooks.js", () => ({
+      runHooks: vi.fn(async () => []),
+    }));
+
+    const previousCwd = process.cwd();
+    process.chdir(cwd);
+
+    try {
+      const { runInit } = await importFresh<
+        typeof import("../src/commands/init.js")
+      >("../src/commands/init.js");
+      const home = process.env.HOME ?? "/home/test-user";
+
+      await runInit({
+        ghqRoot: "~/ghq",
+        workspaceRoot: "~/workspace/sub",
+        format: "json",
+        yes: true,
+      });
+
+      expect(copyResources).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ghqRoot: path.join(home, "ghq"),
+          workspaceRoot: path.join(home, "workspace", "sub"),
+        }),
+        cwd,
+      );
+      expect(generateCodeWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ghqRoot: path.join(home, "ghq"),
+          workspaceRoot: path.join(home, "workspace", "sub"),
+        }),
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
 });
 
 describe("apply workflow", () => {

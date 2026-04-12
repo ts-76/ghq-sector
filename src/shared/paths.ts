@@ -45,11 +45,13 @@ export function remapPortableHomePath(input: string) {
   }
 
   const relativeToForeignHome = getRelativePathFromForeignHome(expanded);
-  if (!relativeToForeignHome) {
+  if (relativeToForeignHome === null) {
     return expanded;
   }
 
-  return path.join(home, relativeToForeignHome);
+  return relativeToForeignHome === ""
+    ? home
+    : path.join(home, relativeToForeignHome);
 }
 
 export function resolveRuntimePaths(
@@ -90,12 +92,14 @@ function getRelativePathFromForeignHome(input: string) {
     .split(path.sep)
     .filter(Boolean);
 
-  if (segments.length < 3) {
-    return null;
-  }
-
   if (segments[0] === "Users" || segments[0] === "home") {
-    return path.join(...segments.slice(2));
+    if (segments.length === 2) {
+      return "";
+    }
+
+    if (segments.length > 2) {
+      return path.join(...segments.slice(2));
+    }
   }
 
   return null;

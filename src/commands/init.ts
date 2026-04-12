@@ -48,9 +48,12 @@ export async function runInit(options: InitOptions) {
     ? await getDefaultOwnerForYesMode()
     : await selectDefaultOwner();
 
-  const config = normalizePortableConfig(
-    createConfigTemplate(ghqRoot, workspaceRoot, owner ?? undefined),
+  const runtimeConfig = createConfigTemplate(
+    ghqRoot,
+    workspaceRoot,
+    owner ?? undefined,
   );
+  const config = normalizePortableConfig(runtimeConfig);
   const configPath = path.join(
     process.cwd(),
     `${DEFAULT_CONFIG_BASENAME}.${format === "json" ? "json" : "yaml"}`,
@@ -62,12 +65,9 @@ export async function runInit(options: InitOptions) {
   }
 
   await writeFile(configPath, serializeConfig(config, format), "utf8");
-  const copiedResources = await copyResources(config, process.cwd());
-  const codeWorkspacePath = await generateCodeWorkspace({
-    ...config,
-    workspaceRoot,
-  });
-  await runHooks(config.hooks?.afterInit, {
+  const copiedResources = await copyResources(runtimeConfig, process.cwd());
+  const codeWorkspacePath = await generateCodeWorkspace(runtimeConfig);
+  await runHooks(runtimeConfig.hooks?.afterInit, {
     ghqRoot,
     workspaceRoot,
   });

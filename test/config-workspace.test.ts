@@ -141,6 +141,12 @@ describe("portable path helpers", () => {
       resolvedWorkspaceRoot: path.join(os.homedir(), "workspace", "sub"),
     });
   });
+
+  it("remaps a foreign absolute home root to the current home root", async () => {
+    const { remapPortableHomePath } = await import("../src/shared/paths.js");
+
+    expect(remapPortableHomePath("/Users/other")).toBe(os.homedir());
+  });
 });
 
 describe("workspace planning", () => {

@@ -96,7 +96,9 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
   const { path: configPath, config } = await loadConfig(cwd);
   push("success", "config", `ok (${configPath})`);
 
-  const runtimePaths = await getRuntimePaths(config);
+  const runtimePaths = await getRuntimePaths(config, {
+    detectedGhqRoot,
+  });
   if (runtimePaths.configuredGhqRoot !== runtimePaths.resolvedGhqRoot) {
     push(
       "warn",

@@ -8,11 +8,22 @@ import type { GhqWsConfig } from "./schema.js";
 
 export async function resolveConfigForCurrentMachine(
   config: GhqWsConfig,
+  detectedGhqRoot?: string,
 ): Promise<GhqWsConfig> {
-  return applyResolvedRuntimePaths(config, await getRuntimePaths(config));
+  return applyResolvedRuntimePaths(
+    config,
+    await getRuntimePaths(config, { detectedGhqRoot }),
+  );
 }
 
-export async function getRuntimePaths(config: GhqWsConfig) {
+export async function getRuntimePaths(
+  config: GhqWsConfig,
+  options?: { detectedGhqRoot?: string },
+) {
+  if (options?.detectedGhqRoot) {
+    return resolveRuntimePaths(config, options.detectedGhqRoot);
+  }
+
   try {
     return resolveRuntimePaths(config, await getGhqRoot());
   } catch {
