@@ -4,6 +4,39 @@ import { describe, expect, it, vi } from "vitest";
 import type { GhqWsConfig } from "../src/config/schema.js";
 import { createConfig, importFresh, makeTempRoot } from "./helpers.js";
 
+describe("config loading", () => {
+  it("loads a config when given a direct config file path", async () => {
+    const root = await makeTempRoot();
+    const configPath = path.join(root, "custom-config.json");
+    const config = createConfig(root);
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const { loadConfig } = await importFresh<
+      typeof import("../src/config/load-config.js")
+    >("../src/config/load-config.js");
+    const loaded = await loadConfig(configPath);
+
+    expect(loaded).toEqual({
+      path: configPath,
+      config,
+    });
+  });
+
+  it("reports a missing direct config file as not found", async () => {
+    const root = await makeTempRoot();
+    const configPath = path.join(root, "missing-config.json");
+
+    const { loadConfig } = await importFresh<
+      typeof import("../src/config/load-config.js")
+    >("../src/config/load-config.js");
+
+    await expect(loadConfig(configPath)).rejects.toThrow(
+      "config file not found",
+    );
+  });
+});
+
 describe("apply workflow", () => {
   it("returns fetched/already-present repos and sync/copy results via runApply", async () => {
     const config = createConfig("/tmp/project");
