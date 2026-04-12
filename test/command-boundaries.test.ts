@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GhqWsConfig } from "../src/config/schema.js";
@@ -392,6 +392,20 @@ describe("clone workflow", () => {
       workspaceRoot: runtimeConfig.workspaceRoot,
       linked: ["one"],
       skipped: [],
+      agentSkills: {
+        linked: [],
+        removed: [],
+        duplicateCount: 0,
+        warningCount: 0,
+        reports: {
+          json: "/resolved/workspace/.ghq-sector/agent-skills-report.json",
+          markdown: "/resolved/workspace/.ghq-sector/agent-skills-report.md",
+        },
+        byProvider: {
+          agents: { linkedCount: 0 },
+          claude: { linkedCount: 0 },
+        },
+      },
     }));
     const copyResources = vi.fn(async () => []);
     const generateCodeWorkspace = vi.fn(async () => null);
@@ -479,6 +493,20 @@ describe("sync workflow", () => {
       workspaceRoot: resolvedConfig.workspaceRoot,
       linked: ["one", "two"],
       skipped: ["missing"],
+      agentSkills: {
+        linked: ["skill-one", "skill-two"],
+        removed: [],
+        duplicateCount: 1,
+        warningCount: 2,
+        reports: {
+          json: "/tmp/project/workspace/.ghq-sector/agent-skills-report.json",
+          markdown: "/tmp/project/workspace/.ghq-sector/agent-skills-report.md",
+        },
+        byProvider: {
+          agents: { linkedCount: 1 },
+          claude: { linkedCount: 1 },
+        },
+      },
     }));
     const copyResources = vi.fn(async () => ["a", "b"]);
     const generateCodeWorkspace = vi.fn(
@@ -510,6 +538,19 @@ describe("sync workflow", () => {
       skippedCount: 1,
       copiedResourcesCount: 2,
       codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+      agentSkills: {
+        linkedCount: 2,
+        duplicateCount: 1,
+        warningCount: 2,
+        reports: {
+          json: "/tmp/project/workspace/.ghq-sector/agent-skills-report.json",
+          markdown: "/tmp/project/workspace/.ghq-sector/agent-skills-report.md",
+        },
+        byProvider: {
+          agents: { linkedCount: 1 },
+          claude: { linkedCount: 1 },
+        },
+      },
     });
   });
 });

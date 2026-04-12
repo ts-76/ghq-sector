@@ -100,6 +100,10 @@ describe("config validation", () => {
 
     expect(template.categories).toEqual(["projects", "tools", "docs"]);
     expect(template.defaults?.category).toBe("projects");
+    expect(template.agentSkills).toEqual({
+      enabled: false,
+      providers: ["agents", "claude"],
+    });
   });
 });
 
@@ -206,6 +210,10 @@ describe("workspace planning", () => {
       linkableRepos: 1,
       missingRepos: 1,
       resourcesCount: 0,
+      agentSkillsDiscoveredCount: 0,
+      agentSkillsLinkedCount: 0,
+      agentSkillsDuplicateCount: 0,
+      agentSkillsWarningCount: 0,
     });
     expect(
       plan.repoLinks.map((repo: { name: string; status: string }) => ({

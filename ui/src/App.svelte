@@ -41,11 +41,55 @@ interface PreviewResult {
     path: string | null;
     folders: { path: string }[];
   };
+  agentSkills: {
+    enabled: boolean;
+    providers: ("agents" | "claude")[];
+    selected: {
+      provider: "agents" | "claude";
+      skillDirectoryName: string;
+      destinationPath: string;
+      sourcePath: string;
+      repo: { label: string };
+      frontmatter: { name?: string; description?: string };
+    }[];
+    duplicateGroups: {
+      provider: "agents" | "claude";
+      key: string;
+      selected: { repo: { label: string } };
+      skipped: { repo: { label: string } }[];
+    }[];
+    warnings: {
+      type: "frontmatter-parse" | "missing-name";
+      provider: "agents" | "claude";
+      repo: string;
+      skillDirectoryName: string;
+      message: string;
+    }[];
+    summary: {
+      discoveredCount: number;
+      selectedCount: number;
+      duplicateCount: number;
+      warningCount: number;
+      byProvider: Record<
+        "agents" | "claude",
+        {
+          discoveredCount: number;
+          selectedCount: number;
+          duplicateCount: number;
+          warningCount: number;
+        }
+      >;
+    };
+  };
   summary: {
     totalRepos: number;
     linkableRepos: number;
     missingRepos: number;
     resourcesCount: number;
+    agentSkillsDiscoveredCount: number;
+    agentSkillsLinkedCount: number;
+    agentSkillsDuplicateCount: number;
+    agentSkillsWarningCount: number;
   };
 }
 
@@ -56,6 +100,19 @@ interface ApplyResult {
   skippedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
+  agentSkills: {
+    linkedCount: number;
+    duplicateCount: number;
+    warningCount: number;
+    reports: {
+      json: string;
+      markdown: string;
+    };
+    byProvider: {
+      agents: { linkedCount: number };
+      claude: { linkedCount: number };
+    };
+  };
   copiedConfigPath: string;
   fetchedRepos: string[];
   alreadyPresentRepos: string[];
@@ -420,7 +477,7 @@ async function applyWorkspace() {
     await loadGhRepos();
     await previewWorkspace({ silent: true });
     if (applyResult) {
-      successMessage = `applied workspace / fetched ${applyResult.fetchedRepos.length} / linked ${applyResult.linkedCount} / copied config`;
+      successMessage = `applied workspace / fetched ${applyResult.fetchedRepos.length} / linked ${applyResult.linkedCount} repos / linked ${applyResult.agentSkills.linkedCount} agent skills / copied config`;
     } else {
       successMessage = payload.message ?? `applied ${configPath}`;
     }
@@ -654,6 +711,8 @@ function parseRawValue() {
             <div><dt>Ready</dt><dd>{previewResult.summary.linkableRepos}</dd></div>
             <div><dt>Will fetch</dt><dd>{previewResult.summary.missingRepos}</dd></div>
             <div><dt>Resources</dt><dd>{previewResult.summary.resourcesCount}</dd></div>
+            <div><dt>Skills</dt><dd>{previewResult.summary.agentSkillsLinkedCount}</dd></div>
+            <div><dt>Skill duplicates</dt><dd>{previewResult.summary.agentSkillsDuplicateCount}</dd></div>
           </dl>
           {#if applyResult}
             <div class="plan-apply-summary">
@@ -675,9 +734,25 @@ function parseRawValue() {
                   <dt>Skipped</dt>
                   <dd>{applyResult.skippedCount}</dd>
                 </div>
+                <div>
+                  <dt>.agents skills</dt>
+                  <dd>{applyResult.agentSkills.byProvider.agents.linkedCount}</dd>
+                </div>
+                <div>
+                  <dt>.claude skills</dt>
+                  <dd>{applyResult.agentSkills.byProvider.claude.linkedCount}</dd>
+                </div>
+                <div>
+                  <dt>Skill duplicates</dt>
+                  <dd>{applyResult.agentSkills.duplicateCount}</dd>
+                </div>
                 <div class="field-span-2">
                   <dt>Config copy</dt>
                   <dd><code>{applyResult.copiedConfigPath}</code></dd>
+                </div>
+                <div class="field-span-2">
+                  <dt>Skills report</dt>
+                  <dd><code>{applyResult.agentSkills.reports.markdown}</code></dd>
                 </div>
               </dl>
             </div>
@@ -692,6 +767,11 @@ function parseRawValue() {
           </ul>
           {#if previewResult.repoLinks.length > 6}
             <p class="muted compact-note">+{previewResult.repoLinks.length - 6} more repos in plan</p>
+          {/if}
+          {#if previewResult.agentSkills.enabled}
+            <p class="muted compact-note">
+              agent skills → .agents {previewResult.agentSkills.summary.byProvider.agents.selectedCount}, .claude {previewResult.agentSkills.summary.byProvider.claude.selectedCount}, duplicates {previewResult.agentSkills.summary.duplicateCount}, warnings {previewResult.agentSkills.summary.warningCount}
+            </p>
           {/if}
           {#if previewResult.codeWorkspace.enabled && previewResult.codeWorkspace.path}
             <p class="muted compact-note">code-workspace → <code>{previewResult.codeWorkspace.path}</code></p>

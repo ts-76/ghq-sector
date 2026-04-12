@@ -6,6 +6,7 @@ import {
   getRepoDestinationPath,
   getRepoSourcePath,
 } from "../shared/repo-paths.js";
+import { type PlannedAgentSkills, planAgentSkills } from "./agent-skills.js";
 
 export interface PlannedRepoLink {
   provider: string;
@@ -37,11 +38,16 @@ export interface WorkspacePlan {
   repoLinks: PlannedRepoLink[];
   resources: PlannedResourceCopy[];
   codeWorkspace: CodeWorkspacePlan;
+  agentSkills: PlannedAgentSkills;
   summary: {
     totalRepos: number;
     linkableRepos: number;
     missingRepos: number;
     resourcesCount: number;
+    agentSkillsDiscoveredCount: number;
+    agentSkillsLinkedCount: number;
+    agentSkillsDuplicateCount: number;
+    agentSkillsWarningCount: number;
   };
 }
 
@@ -133,6 +139,7 @@ export async function planWorkspace(
 
   const linkableRepos = repoLinks.filter((repo) => repo.available).length;
   const missingRepos = repoLinks.length - linkableRepos;
+  const agentSkills = await planAgentSkills(runtimeConfig);
 
   return {
     ghqRoot,
@@ -140,11 +147,16 @@ export async function planWorkspace(
     repoLinks,
     resources,
     codeWorkspace: buildCodeWorkspacePlan(runtimeConfig),
+    agentSkills,
     summary: {
       totalRepos: repoLinks.length,
       linkableRepos,
       missingRepos,
       resourcesCount: resources.length,
+      agentSkillsDiscoveredCount: agentSkills.summary.discoveredCount,
+      agentSkillsLinkedCount: agentSkills.summary.selectedCount,
+      agentSkillsDuplicateCount: agentSkills.summary.duplicateCount,
+      agentSkillsWarningCount: agentSkills.summary.warningCount,
     },
   };
 }

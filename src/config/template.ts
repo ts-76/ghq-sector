@@ -29,5 +29,9 @@ export function createConfigTemplate(
         enabled: true,
       },
     },
+    agentSkills: {
+      enabled: false,
+      providers: ["agents", "claude"],
+    },
   };
 }
