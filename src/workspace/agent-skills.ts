@@ -156,7 +156,7 @@ export async function planAgentSkills(
       const skipped = entries.slice(1);
       duplicateGroups.push({
         provider: entries[0].provider,
-        key: entries[0].normalizedName ?? key,
+        key: entries[0].normalizedName ?? entries[0].skillDirectoryName,
         selected: entries[0],
         skipped,
         sameDescription: entries.every(

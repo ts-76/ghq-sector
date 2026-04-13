@@ -772,7 +772,15 @@ function parseRawValue() {
           {/if}
           {#if previewResult.agentSkills.enabled}
             <p class="muted compact-note">
-              agent skills → .agents {previewResult.agentSkills.summary.byProvider.agents.selectedCount}, .claude {previewResult.agentSkills.summary.byProvider.claude.selectedCount}, duplicates {previewResult.agentSkills.summary.duplicateCount}, warnings {previewResult.agentSkills.summary.warningCount}
+              agent skills →
+              {#if previewResult.agentSkills.providers?.includes("agents")}
+                .agents {previewResult.agentSkills.summary.byProvider.agents.selectedCount}
+              {/if}
+              {#if previewResult.agentSkills.providers?.includes("claude")}
+                {#if previewResult.agentSkills.providers?.includes("agents")}, {/if}
+                .claude {previewResult.agentSkills.summary.byProvider.claude.selectedCount}
+              {/if}
+              , duplicates {previewResult.agentSkills.summary.duplicateCount}, warnings {previewResult.agentSkills.summary.warningCount}
             </p>
           {/if}
           {#if previewResult.codeWorkspace.enabled && previewResult.codeWorkspace.path}

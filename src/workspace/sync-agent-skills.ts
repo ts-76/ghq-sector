@@ -71,10 +71,14 @@ export async function syncAgentSkills(
   const removed: string[] = [];
 
   for (const previousPath of previous) {
-    if (!desired.has(previousPath)) {
-      await rm(previousPath, { force: true, recursive: true });
-      removed.push(previousPath);
+    if (desired.has(previousPath)) {
+      continue;
     }
+    if (!isManagedSkillPath(workspaceRoot, previousPath)) {
+      continue;
+    }
+    await rm(previousPath, { force: true, recursive: true });
+    removed.push(previousPath);
   }
 
   const linked: string[] = [];
@@ -138,6 +142,19 @@ async function readPreviousManifest(manifestPath: string): Promise<string[]> {
   }
 }
 
+function isManagedSkillPath(workspaceRoot: string, entryPath: string): boolean {
+  const normalized = path.resolve(entryPath);
+  const root = path.resolve(workspaceRoot);
+  if (!normalized.startsWith(root)) {
+    return false;
+  }
+  const relative = normalized.slice(root.length);
+  return (
+    relative.startsWith(`${path.sep}.agents${path.sep}skills${path.sep}`) ||
+    relative.startsWith(`${path.sep}.claude${path.sep}skills${path.sep}`)
+  );
+}
+
 async function writeManifest(
   manifestPath: string,
   linked: string[],
@@ -183,7 +200,7 @@ function toMarkdownReport(workspaceRoot: string, plan: PlannedAgentSkills) {
     `- Warnings: ${plan.summary.warningCount}`,
     "",
     "## Per provider",
-    ...(["agents", "claude"] as const).map(
+    ...plan.providers.map(
       (provider) =>
         `- .${provider}: discovered ${plan.summary.byProvider[provider].discoveredCount}, linked ${plan.summary.byProvider[provider].selectedCount}, duplicates ${plan.summary.byProvider[provider].duplicateCount}, warnings ${plan.summary.byProvider[provider].warningCount}`,
     ),
