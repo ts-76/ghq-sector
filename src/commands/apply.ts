@@ -11,6 +11,19 @@ export interface ApplyResult {
   skippedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
+  agentSkills: {
+    linkedCount: number;
+    duplicateCount: number;
+    warningCount: number;
+    reports: {
+      json: string;
+      markdown: string;
+    };
+    byProvider: {
+      agents: { linkedCount: number };
+      claude: { linkedCount: number };
+    };
+  };
   copiedConfigPath: string;
   fetchedRepos: string[];
   alreadyPresentRepos: string[];

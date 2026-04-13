@@ -7,11 +7,27 @@ import {
   getRepoDestinationPath,
   getRepoSourcePath,
 } from "../shared/repo-paths.js";
+import { planAgentSkills } from "./agent-skills.js";
+import { syncAgentSkills } from "./sync-agent-skills.js";
 
 export interface SyncWorkspaceResult {
   workspaceRoot: string;
   linked: string[];
   skipped: string[];
+  agentSkills: {
+    linked: string[];
+    removed: string[];
+    duplicateCount: number;
+    warningCount: number;
+    reports: {
+      json: string;
+      markdown: string;
+    };
+    byProvider: {
+      agents: { linkedCount: number };
+      claude: { linkedCount: number };
+    };
+  };
 }
 
 export async function syncWorkspace(
@@ -56,11 +72,26 @@ export async function syncWorkspace(
     });
   }
 
+  const agentSkillPlan = await planAgentSkills(config);
+  const agentSkillResult = await syncAgentSkills(workspaceRoot, agentSkillPlan);
+
   await runHooks(config.hooks?.afterSync, {
     ghqRoot,
     workspaceRoot,
     linkedCount: linked.length,
   });
 
-  return { workspaceRoot, linked, skipped };
+  return {
+    workspaceRoot,
+    linked,
+    skipped,
+    agentSkills: {
+      linked: agentSkillResult.linked,
+      removed: agentSkillResult.removed,
+      duplicateCount: agentSkillResult.summary.duplicateCount,
+      warningCount: agentSkillResult.summary.warningCount,
+      reports: agentSkillResult.reports,
+      byProvider: agentSkillResult.summary.byProvider,
+    },
+  };
 }

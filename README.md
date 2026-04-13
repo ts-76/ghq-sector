@@ -98,8 +98,10 @@ The editor is built with [visual-json](https://github.com/vercel-labs/visual-jso
 - `ghq-sector.config.json`
 - category directories under `workspaceRoot`
 - symlinks pointing to repositories managed by `ghq`
+- optional agent skill symlinks under `workspaceRoot/.agents/skills/...` and `workspaceRoot/.claude/skills/...`
 - copied resources declared in `resources`
 - a generated VS Code `.code-workspace` file when enabled
+- `.ghq-sector/agent-skills-report.json` and `.md` reports when agent skill sync is enabled
 
 ## Portable config behavior
 
@@ -247,6 +249,28 @@ Typical fields:
 - `resources`
 - `hooks`
 - `editor`
+- `agentSkills`
+
+### `agentSkills`
+
+Enable repository-distributed agent skill syncing when you want `ghq-sector` to discover skills from fixed vendor paths inside each configured repo.
+
+```json
+{
+  "agentSkills": {
+    "enabled": true,
+    "providers": ["agents", "claude"]
+  }
+}
+```
+
+Behavior:
+
+- scans only `<repo>/.agents/skills/*/SKILL.md` and `<repo>/.claude/skills/*/SKILL.md`
+- links selected skills into `workspaceRoot/.agents/skills/<skill>` and the `.claude` equivalent
+- resolves duplicate `frontmatter.name` values deterministically by `repos` order in the config
+- records skipped duplicates and parse/name warnings in `workspaceRoot/.ghq-sector/agent-skills-report.json` and `.md`
+- preview in `gsec edit` stays read-only; actual links and reports are created only during apply/sync/clone
 
 ## AI workflow angle
 

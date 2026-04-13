@@ -10,6 +10,10 @@ import {
   getRepoDestinationPath,
   getRepoSourcePath,
 } from "../shared/repo-paths.js";
+import {
+  getEnabledAgentSkillProviders,
+  planAgentSkills,
+} from "../workspace/agent-skills.js";
 
 export interface DoctorCheck {
   level: "success" | "info" | "warn";
@@ -170,6 +174,46 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
     }
   }
 
+  const runtimeConfig = {
+    ...config,
+    ghqRoot: runtimePaths.resolvedGhqRoot,
+    workspaceRoot,
+  };
+  const enabledAgentSkillProviders =
+    getEnabledAgentSkillProviders(runtimeConfig);
+  const agentSkillsPlan = await planAgentSkills(runtimeConfig);
+  if (enabledAgentSkillProviders.length === 0) {
+    push("info", "agent skills", "disabled by config");
+  } else {
+    push(
+      "info",
+      "agent skills",
+      `discovered ${agentSkillsPlan.summary.discoveredCount}, linked ${agentSkillsPlan.summary.selectedCount}, duplicates ${agentSkillsPlan.summary.duplicateCount}, warnings ${agentSkillsPlan.summary.warningCount}`,
+    );
+    for (const provider of enabledAgentSkillProviders) {
+      const providerSummary = agentSkillsPlan.summary.byProvider[provider];
+      push(
+        "info",
+        `agent skills .${provider}`,
+        `discovered ${providerSummary.discoveredCount}, linked ${providerSummary.selectedCount}, duplicates ${providerSummary.duplicateCount}, warnings ${providerSummary.warningCount}`,
+      );
+    }
+    for (const group of agentSkillsPlan.duplicateGroups) {
+      push(
+        "warn",
+        `agent skill duplicate .${group.provider}`,
+        `${group.key}: selected ${group.selected.repo.label}, skipped ${group.skipped.map((entry) => entry.repo.label).join(", ")}`,
+      );
+    }
+    for (const warningEntry of agentSkillsPlan.warnings) {
+      push(
+        warningEntry.type === "frontmatter-parse" ? "warn" : "info",
+        `agent skill warning .${warningEntry.provider}`,
+        `${warningEntry.repo}/${warningEntry.skillDirectoryName}: ${warningEntry.message}`,
+      );
+    }
+  }
+
   if (!workspaceRootExists) {
     push(
       "info",
@@ -220,6 +264,48 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
         push("success", `link ${label}`, `ok (${destination} -> ${target})`);
       } catch {
         push("warn", `link ${label}`, `missing (${destination})`);
+      }
+    }
+
+    if (enabledAgentSkillProviders.length > 0) {
+      for (const skill of agentSkillsPlan.selected) {
+        try {
+          const stats = await lstat(skill.destinationPath);
+          if (!stats.isSymbolicLink()) {
+            push(
+              "warn",
+              `agent skill link .${skill.provider}`,
+              `not a symlink (${skill.destinationPath})`,
+            );
+            continue;
+          }
+
+          const target = await readlink(skill.destinationPath);
+          push(
+            "success",
+            `agent skill link .${skill.provider}`,
+            `ok (${skill.destinationPath} -> ${target})`,
+          );
+        } catch {
+          push(
+            "warn",
+            `agent skill link .${skill.provider}`,
+            `missing (${skill.destinationPath})`,
+          );
+        }
+      }
+
+      const reportPaths = [
+        path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.json"),
+        path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.md"),
+      ];
+      for (const reportPath of reportPaths) {
+        try {
+          await access(reportPath);
+          push("success", "agent skills report", `ok (${reportPath})`);
+        } catch {
+          push("warn", "agent skills report", `missing (${reportPath})`);
+        }
       }
     }
   }

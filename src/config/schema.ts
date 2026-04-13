@@ -38,6 +38,11 @@ export const editorSchema = v.object({
   codeWorkspace: v.optional(codeWorkspaceSchema),
 });
 
+export const agentSkillsSchema = v.object({
+  enabled: v.optional(v.boolean()),
+  providers: v.optional(v.array(v.picklist(["agents", "claude"] as const))),
+});
+
 export const configSchema = v.object({
   ghqRoot: v.string(),
   workspaceRoot: v.string(),
@@ -47,6 +52,7 @@ export const configSchema = v.object({
   resources: v.optional(v.array(resourceSchema)),
   defaults: v.optional(defaultsSchema),
   editor: v.optional(editorSchema),
+  agentSkills: v.optional(agentSkillsSchema),
 });
 
 export type GhqWsConfig = v.InferOutput<typeof configSchema>;

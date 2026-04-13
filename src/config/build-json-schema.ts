@@ -187,6 +187,27 @@ export function buildJsonSchema(): JsonSchema {
           },
         },
       },
+      agentSkills: {
+        type: "object",
+        description:
+          "Optional distributed agent skill syncing from repo-local .agents/skills and .claude/skills directories into workspaceRoot/.agents/skills and workspaceRoot/.claude/skills.",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description:
+              "Enable discovery and symlink sync for repo-local agent skills during preview, sync, apply, and clone.",
+          },
+          providers: {
+            type: "array",
+            description:
+              "Limit agent skill syncing to specific providers. Supported values are agents and claude.",
+            items: {
+              type: "string",
+              description: "One agent skill provider to scan and sync.",
+            },
+          },
+        },
+      },
     },
   };
 }

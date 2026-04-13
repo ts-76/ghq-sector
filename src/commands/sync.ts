@@ -14,6 +14,19 @@ export interface RunSyncResult {
   skippedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
+  agentSkills: {
+    linkedCount: number;
+    duplicateCount: number;
+    warningCount: number;
+    reports: {
+      json: string;
+      markdown: string;
+    };
+    byProvider: {
+      agents: { linkedCount: number };
+      claude: { linkedCount: number };
+    };
+  };
 }
 
 export async function runSync(
@@ -37,6 +50,28 @@ export async function runSync(
   if (result.skipped.length > 0) {
     warn(`skipped repos: ${result.skipped.length}`);
   }
+  if (result.agentSkills.linked.length > 0) {
+    success(
+      `linked .agents skills: ${result.agentSkills.byProvider.agents.linkedCount}`,
+    );
+    success(
+      `linked .claude skills: ${result.agentSkills.byProvider.claude.linkedCount}`,
+    );
+  }
+  if (result.agentSkills.duplicateCount > 0) {
+    warn(
+      `skipped duplicate agent skills: ${result.agentSkills.duplicateCount}`,
+    );
+  }
+  if (result.agentSkills.warningCount > 0) {
+    warn(`agent skill warnings: ${result.agentSkills.warningCount}`);
+  }
+  if (
+    result.agentSkills.linked.length > 0 ||
+    result.agentSkills.duplicateCount > 0
+  ) {
+    success(`agent skills report: ${result.agentSkills.reports.markdown}`);
+  }
   if (copiedResources.length > 0) {
     success(`copied resources: ${copiedResources.length}`);
   }
@@ -51,5 +86,12 @@ export async function runSync(
     skippedCount: result.skipped.length,
     copiedResourcesCount: copiedResources.length,
     codeWorkspacePath: codeWorkspacePath ?? null,
+    agentSkills: {
+      linkedCount: result.agentSkills.linked.length,
+      duplicateCount: result.agentSkills.duplicateCount,
+      warningCount: result.agentSkills.warningCount,
+      reports: result.agentSkills.reports,
+      byProvider: result.agentSkills.byProvider,
+    },
   };
 }

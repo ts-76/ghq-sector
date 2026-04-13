@@ -34,6 +34,19 @@ export interface CloneResult {
   linkedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
+  agentSkills: {
+    linkedCount: number;
+    duplicateCount: number;
+    warningCount: number;
+    reports: {
+      json: string;
+      markdown: string;
+    };
+    byProvider: {
+      agents: { linkedCount: number };
+      claude: { linkedCount: number };
+    };
+  };
 }
 
 export async function runClone(
@@ -92,6 +105,25 @@ export async function runClone(
 
   info(`cloned repository: ${repositoryPath}`);
   info(`linked repos: ${syncResult.linked.length}`);
+  if (syncResult.agentSkills.linked.length > 0) {
+    info(
+      `linked .agents skills: ${syncResult.agentSkills.byProvider.agents.linkedCount}`,
+    );
+    info(
+      `linked .claude skills: ${syncResult.agentSkills.byProvider.claude.linkedCount}`,
+    );
+  }
+  if (syncResult.agentSkills.duplicateCount > 0) {
+    info(
+      `skipped duplicate agent skills: ${syncResult.agentSkills.duplicateCount}`,
+    );
+  }
+  if (
+    syncResult.agentSkills.linked.length > 0 ||
+    syncResult.agentSkills.duplicateCount > 0
+  ) {
+    info(`agent skills report: ${syncResult.agentSkills.reports.markdown}`);
+  }
   if (codeWorkspacePath) {
     info(`generated code workspace: ${codeWorkspacePath}`);
   }
@@ -105,6 +137,13 @@ export async function runClone(
     linkedCount: syncResult.linked.length,
     copiedResourcesCount: copiedResources.length,
     codeWorkspacePath: codeWorkspacePath ?? null,
+    agentSkills: {
+      linkedCount: syncResult.agentSkills.linked.length,
+      duplicateCount: syncResult.agentSkills.duplicateCount,
+      warningCount: syncResult.agentSkills.warningCount,
+      reports: syncResult.agentSkills.reports,
+      byProvider: syncResult.agentSkills.byProvider,
+    },
   };
 }
 

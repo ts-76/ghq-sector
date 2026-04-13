@@ -96,8 +96,10 @@ gsec edit
 - `ghq-sector.config.json`
 - `workspaceRoot` 配下の category directory
 - `ghq` 管理下の repository を指す symlink
+- `workspaceRoot/.agents/skills/...` と `workspaceRoot/.claude/skills/...` 配下の optional な agent skill symlink
 - `resources` に定義した copy 対象
 - 有効な場合は VS Code 用 `.code-workspace`
+- agent skill sync を有効にした場合の `.ghq-sector/agent-skills-report.json` と `.md` レポート
 
 デフォルト category:
 
@@ -234,6 +236,28 @@ gsec edit --host 0.0.0.0 --port 4173
 - `resources`
 - `hooks`
 - `editor`
+- `agentSkills`
+
+### `agentSkills`
+
+repository 内に分散した agent skill を `ghq-sector` で同期したい場合は、この設定を有効にします。
+
+```json
+{
+  "agentSkills": {
+    "enabled": true,
+    "providers": ["agents", "claude"]
+  }
+}
+```
+
+挙動:
+
+- 各 repo の `<repo>/.agents/skills/*/SKILL.md` と `<repo>/.claude/skills/*/SKILL.md` だけを走査します
+- 選ばれた skill を `workspaceRoot/.agents/skills/<skill>` と `.claude` 側の同等パスへ link します
+- `frontmatter.name` が重複した skill は config の `repos` 順で winner を決めます
+- skip された duplicate と parse/name warning を `workspaceRoot/.ghq-sector/agent-skills-report.json` と `.md` に出力します
+- `gsec edit` の preview は read-only のままで、実際の link と report は apply / sync / clone 時だけ作成されます
 
 ## AI workflow 観点での位置づけ
 
