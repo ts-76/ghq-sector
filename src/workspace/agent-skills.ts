@@ -124,12 +124,9 @@ export async function planAgentSkills(
   const duplicateGroups: AgentSkillDuplicateGroup[] = [];
 
   for (const skill of discovered) {
-    if (!skill.normalizedName) {
-      selected.push(skill);
-      continue;
-    }
-
-    const key = `${skill.provider}:${skill.normalizedName}`;
+    const key = skill.normalizedName
+      ? `${skill.provider}:${skill.normalizedName}`
+      : `${skill.provider}:${skill.skillDirectoryName}`;
     const existing = groups.get(key);
     if (existing) {
       existing.push(skill);
@@ -309,11 +306,12 @@ function parseSkillFrontmatter(content: string): {
   frontmatter: AgentSkillFrontmatter;
   warning: string | null;
 } {
-  if (!content.startsWith("---\n")) {
+  const normalized = content.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
     return { frontmatter: {}, warning: null };
   }
 
-  const endIndex = content.indexOf("\n---\n", 4);
+  const endIndex = normalized.indexOf("\n---\n", 4);
   if (endIndex === -1) {
     return {
       frontmatter: {},
@@ -321,7 +319,7 @@ function parseSkillFrontmatter(content: string): {
     };
   }
 
-  const rawFrontmatter = content.slice(4, endIndex);
+  const rawFrontmatter = normalized.slice(4, endIndex);
   try {
     const parsed = YAML.parse(rawFrontmatter);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

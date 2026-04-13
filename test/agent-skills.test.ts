@@ -212,6 +212,15 @@ describe("agent skills syncing", () => {
     await writeFile(unrelatedFile, "keep", "utf8");
     await writeFile(unrelatedNestedFile, "keep", "utf8");
 
+    // Write a previous manifest so syncAgentSkills knows the stale link is managed
+    const manifestDir = path.join(config.workspaceRoot, ".ghq-sector");
+    await mkdir(manifestDir, { recursive: true });
+    await writeFile(
+      path.join(manifestDir, "agent-skills-manifest.json"),
+      JSON.stringify([staleManagedTarget]),
+      "utf8",
+    );
+
     const result = await syncAgentSkills(config.workspaceRoot, plan);
     const agentsDestination = path.join(
       config.workspaceRoot,

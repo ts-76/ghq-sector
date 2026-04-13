@@ -1,11 +1,4 @@
-import {
-  mkdir,
-  readdir,
-  readlink,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentSkillProvider,
@@ -69,16 +62,18 @@ export async function syncAgentSkills(
   }
 
   const desired = new Set(plan.selected.map((skill) => skill.destinationPath));
+  const manifestPath = path.join(
+    workspaceRoot,
+    ".ghq-sector",
+    "agent-skills-manifest.json",
+  );
+  const previous = await readPreviousManifest(manifestPath);
   const removed: string[] = [];
-  for (const provider of plan.providers) {
-    const providerRoot = path.join(workspaceRoot, `.${provider}`, "skills");
-    await mkdir(providerRoot, { recursive: true });
-    const existing = await listManagedSkillLinks(providerRoot);
-    for (const entry of existing) {
-      if (!desired.has(entry)) {
-        await rm(entry, { force: true, recursive: true });
-        removed.push(entry);
-      }
+
+  for (const previousPath of previous) {
+    if (!desired.has(previousPath)) {
+      await rm(previousPath, { force: true, recursive: true });
+      removed.push(previousPath);
     }
   }
 
@@ -89,6 +84,9 @@ export async function syncAgentSkills(
     await symlink(skill.sourcePath, skill.destinationPath, "dir");
     linked.push(skill.destinationPath);
   }
+
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeManifest(manifestPath, linked);
 
   await mkdir(path.dirname(reports.json), { recursive: true });
   await writeFile(
@@ -127,45 +125,24 @@ export async function syncAgentSkills(
   };
 }
 
-async function listManagedSkillLinks(root: string): Promise<string[]> {
-  const entries: string[] = [];
-  let children: {
-    name: string;
-    isDirectory(): boolean;
-    isSymbolicLink(): boolean;
-  }[];
-
+async function readPreviousManifest(manifestPath: string): Promise<string[]> {
   try {
-    children = (await readdir(root, {
-      withFileTypes: true,
-      encoding: "utf8",
-    })) as unknown as {
-      name: string;
-      isDirectory(): boolean;
-      isSymbolicLink(): boolean;
-    }[];
+    const raw = await readFile(manifestPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item: unknown) => typeof item === "string");
+    }
+    return [];
   } catch {
-    return entries;
+    return [];
   }
+}
 
-  for (const child of children) {
-    const childPath = path.join(root, child.name);
-    if (child.isDirectory()) {
-      entries.push(...(await listManagedSkillLinks(childPath)));
-      continue;
-    }
-
-    if (!child.isSymbolicLink()) {
-      continue;
-    }
-
-    const target = await readlink(childPath).catch(() => null);
-    if (target) {
-      entries.push(childPath);
-    }
-  }
-
-  return entries;
+async function writeManifest(
+  manifestPath: string,
+  linked: string[],
+): Promise<void> {
+  await writeFile(manifestPath, `${JSON.stringify(linked, null, 2)}\n`, "utf8");
 }
 
 async function ensureParentTree(destinationPath: string) {

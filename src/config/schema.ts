@@ -40,9 +40,7 @@ export const editorSchema = v.object({
 
 export const agentSkillsSchema = v.object({
   enabled: v.optional(v.boolean()),
-  providers: v.optional(
-    v.array(v.picklist(["agents", "claude"] as const)),
-  ),
+  providers: v.optional(v.array(v.picklist(["agents", "claude"] as const))),
 });
 
 export const configSchema = v.object({

@@ -106,13 +106,22 @@ export async function runClone(
   info(`cloned repository: ${repositoryPath}`);
   info(`linked repos: ${syncResult.linked.length}`);
   if (syncResult.agentSkills.linked.length > 0) {
-    info(`linked .agents skills: ${syncResult.agentSkills.byProvider.agents.linkedCount}`);
-    info(`linked .claude skills: ${syncResult.agentSkills.byProvider.claude.linkedCount}`);
+    info(
+      `linked .agents skills: ${syncResult.agentSkills.byProvider.agents.linkedCount}`,
+    );
+    info(
+      `linked .claude skills: ${syncResult.agentSkills.byProvider.claude.linkedCount}`,
+    );
   }
   if (syncResult.agentSkills.duplicateCount > 0) {
-    info(`skipped duplicate agent skills: ${syncResult.agentSkills.duplicateCount}`);
+    info(
+      `skipped duplicate agent skills: ${syncResult.agentSkills.duplicateCount}`,
+    );
   }
-  if (syncResult.agentSkills.linked.length > 0 || syncResult.agentSkills.duplicateCount > 0) {
+  if (
+    syncResult.agentSkills.linked.length > 0 ||
+    syncResult.agentSkills.duplicateCount > 0
+  ) {
     info(`agent skills report: ${syncResult.agentSkills.reports.markdown}`);
   }
   if (codeWorkspacePath) {

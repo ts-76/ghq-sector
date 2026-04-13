@@ -750,10 +750,12 @@ function parseRawValue() {
                   <dt>Config copy</dt>
                   <dd><code>{applyResult.copiedConfigPath}</code></dd>
                 </div>
-                <div class="field-span-2">
-                  <dt>Skills report</dt>
-                  <dd><code>{applyResult.agentSkills.reports.markdown}</code></dd>
-                </div>
+                {#if applyResult.agentSkills.byProvider.agents.linkedCount > 0 || applyResult.agentSkills.byProvider.claude.linkedCount > 0 || applyResult.agentSkills.duplicateCount > 0}
+                  <div class="field-span-2">
+                    <dt>Skills report</dt>
+                    <dd><code>{applyResult.agentSkills.reports.markdown}</code></dd>
+                  </div>
+                {/if}
               </dl>
             </div>
           {/if}
