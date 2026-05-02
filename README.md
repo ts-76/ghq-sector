@@ -1,6 +1,7 @@
 # ghq-sector
 
 [![npm version](https://img.shields.io/npm/v/ghq-sector?logo=npm&label=npm)](https://www.npmjs.com/package/ghq-sector)
+<a href="https://flatt.tech/oss/gmo/trampoline" target="_blank" rel="noopener noreferrer"><img src="https://flatt.tech/assets/images/badges/gmo-oss.svg" height="24px"/></a>
 
 You want to work across many repositories with AI agents. But how do you organize them?
 
