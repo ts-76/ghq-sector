@@ -13,6 +13,7 @@ import {
   getRepoDestinationPath,
   getRepoSourcePath,
 } from "../shared/repo-paths.js";
+import { generateAgentsMd } from "../workspace/generate-agents-md.js";
 import { generateCodeWorkspace } from "../workspace/generate-code-workspace.js";
 import { syncWorkspace } from "../workspace/sync-workspace.js";
 
@@ -34,6 +35,7 @@ export interface CloneResult {
   linkedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
+  agentsMdPath: string;
   agentSkills: {
     linkedCount: number;
     duplicateCount: number;
@@ -102,6 +104,7 @@ export async function runClone(
     path.dirname(options.configPath),
   );
   const codeWorkspacePath = await generateCodeWorkspace(nextConfig);
+  const agentsMdPath = await generateAgentsMd(nextConfig);
 
   info(`cloned repository: ${repositoryPath}`);
   info(`linked repos: ${syncResult.linked.length}`);
@@ -127,6 +130,7 @@ export async function runClone(
   if (codeWorkspacePath) {
     info(`generated code workspace: ${codeWorkspacePath}`);
   }
+  info(`generated AGENTS.md: ${agentsMdPath}`);
 
   return {
     config: nextConfig,
@@ -137,6 +141,7 @@ export async function runClone(
     linkedCount: syncResult.linked.length,
     copiedResourcesCount: copiedResources.length,
     codeWorkspacePath: codeWorkspacePath ?? null,
+    agentsMdPath,
     agentSkills: {
       linkedCount: syncResult.agentSkills.linked.length,
       duplicateCount: syncResult.agentSkills.duplicateCount,

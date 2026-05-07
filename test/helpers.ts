@@ -69,6 +69,7 @@ const mockedModules = [
   "../src/shared/gh.js",
   "../src/shared/prompt.js",
   "../src/workspace/generate-code-workspace.js",
+  "../src/workspace/generate-agents-md.js",
 ] as const;
 
 export async function importFresh<T>(specifier: string): Promise<T> {
