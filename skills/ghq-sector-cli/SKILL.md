@@ -164,11 +164,12 @@ gsec apply
 When `gsec sync`, `gsec apply`, or `gsec clone` updates `AGENTS.md`, ghq-sector writes a managed directory structure block. Each repo line uses a short description of 30 characters or fewer.
 
 Description source order:
-1. `package.json.description` in the ghq-managed repository
-2. First useful heading/list/text line from `README.md`, `README.ja.md`, or `readme.md`
-3. `No description yet` when no usable description exists
+1. `repos[].description` in the ghq-sector config
+2. `package.json.description` in the ghq-managed repository
+3. First useful heading/list/text line from `README.md`, `README.ja.md`, or `readme.md`
+4. `No description yet` when no usable description exists
 
-If a repo shows `No description yet`, improve the source repository instead of editing the managed `AGENTS.md` block directly. Add a concise `package.json.description` or a clear first README heading/summary, then run `gsec sync` or `gsec apply` again.
+If a repo shows `No description yet`, improve the source data instead of editing the managed `AGENTS.md` block directly. Prefer a concise `repos[].description` in the ghq-sector config when the workspace needs a local summary, or add a clear `package.json.description` / first README heading in the source repository when the summary belongs to the repo itself. Then run `gsec sync` or `gsec apply` again.
 
 ### Key fields
 

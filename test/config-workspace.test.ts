@@ -105,6 +105,22 @@ describe("config validation", () => {
       providers: ["agents", "claude"],
     });
   });
+
+  it("exposes optional repo descriptions in the JSON schema", async () => {
+    const { buildJsonSchema } = await import(
+      "../src/config/build-json-schema.js"
+    );
+
+    const schema = buildJsonSchema();
+    const repoDescription =
+      schema.properties?.repos.items?.properties?.description;
+
+    expect(repoDescription).toMatchObject({
+      type: "string",
+      description:
+        "Optional short repository summary used first in generated AGENTS.md directory listings.",
+    });
+  });
 });
 
 describe("portable path helpers", () => {

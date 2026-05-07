@@ -216,6 +216,7 @@ describe("apply workflow", () => {
       skippedCount: 1,
       copiedResourcesCount: 3,
       codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+      agentsMdPath: "/tmp/project/workspace/AGENTS.md",
     }));
     const copyConfigToWorkspace = vi.fn(
       async () => "/tmp/project/workspace/ghq-sector.config.json",
@@ -255,6 +256,7 @@ describe("apply workflow", () => {
       skippedCount: 1,
       copiedResourcesCount: 3,
       codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+      agentsMdPath: "/tmp/project/workspace/AGENTS.md",
       copiedConfigPath: "/tmp/project/workspace/ghq-sector.config.json",
       fetchedRepos: ["github.com/ts-76/dotfiles"],
       alreadyPresentRepos: ["github.com/ts-76/life"],
@@ -280,6 +282,7 @@ describe("apply workflow", () => {
       skippedCount: 0,
       copiedResourcesCount: 0,
       codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+      agentsMdPath: "/tmp/project/workspace/AGENTS.md",
     }));
     const copyConfigToWorkspace = vi.fn(async () => directConfigPath);
 
@@ -477,6 +480,98 @@ describe("clone workflow", () => {
     );
     expect(result.destinationPath).toBe(
       path.join(runtimeConfig.workspaceRoot, "projects", "repo"),
+    );
+  });
+
+  it("preserves an existing repo description when recloning the same repo", async () => {
+    const config = {
+      ...createConfig("/tmp/project"),
+      repos: [
+        {
+          provider: "github.com",
+          owner: "owner",
+          name: "repo",
+          category: "projects",
+          description: "Existing short summary",
+        },
+      ],
+    };
+    const saveConfig = vi.fn(async () => undefined);
+    const ghqGet = vi.fn(async () => undefined);
+    const syncWorkspace = vi.fn(async () => ({
+      workspaceRoot: config.workspaceRoot,
+      linked: ["one"],
+      skipped: [],
+      agentSkills: {
+        linked: [],
+        removed: [],
+        duplicateCount: 0,
+        warningCount: 0,
+        reports: {
+          json: "/tmp/project/workspace/.ghq-sector/agent-skills-report.json",
+          markdown: "/tmp/project/workspace/.ghq-sector/agent-skills-report.md",
+        },
+        byProvider: {
+          agents: { linkedCount: 0 },
+          claude: { linkedCount: 0 },
+        },
+      },
+    }));
+
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      resolveConfigForCurrentMachine: vi.fn(async () => config),
+    }));
+    vi.doMock("../src/config/save-config.js", () => ({ saveConfig }));
+    vi.doMock("../src/ghq/ghq-get.js", () => ({ ghqGet }));
+    vi.doMock("../src/workspace/sync-workspace.js", () => ({ syncWorkspace }));
+    vi.doMock("../src/resources/copy-resources.js", () => ({
+      copyResources: vi.fn(async () => []),
+    }));
+    vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
+      generateCodeWorkspace: vi.fn(async () => null),
+    }));
+    vi.doMock("../src/workspace/generate-agents-md.js", () => ({
+      generateAgentsMd: vi.fn(async () => "/tmp/project/workspace/AGENTS.md"),
+    }));
+    vi.doMock("../src/hooks/run-hooks.js", () => ({
+      runHooks: vi.fn(async () => []),
+    }));
+    vi.doMock("node:fs/promises", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
+      return {
+        ...actual,
+        access: vi.fn(async () => undefined),
+      };
+    });
+
+    const { runClone } = await importFresh<
+      typeof import("../src/commands/clone.js")
+    >("../src/commands/clone.js");
+
+    const result = await runClone(config, {
+      repository: "owner/repo",
+      category: "projects",
+      configPath: "/tmp/project/ghq-sector.config.json",
+      yes: true,
+    });
+
+    expect(result.repo.description).toBe("Existing short summary");
+    expect(saveConfig).toHaveBeenCalledWith(
+      "/tmp/project/ghq-sector.config.json",
+      expect.objectContaining({
+        repos: [
+          expect.objectContaining({
+            provider: "github.com",
+            owner: "owner",
+            name: "repo",
+            category: "projects",
+            description: "Existing short summary",
+          }),
+        ],
+      }),
     );
   });
 });

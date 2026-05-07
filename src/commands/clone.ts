@@ -96,6 +96,13 @@ export async function runClone(
     ...runtimeConfig,
     repos: upsertRepo(runtimeConfig.repos, repo),
   };
+  const nextRepo =
+    nextConfig.repos.find(
+      (current) =>
+        current.provider === repo.provider &&
+        current.owner === repo.owner &&
+        current.name === repo.name,
+    ) ?? repo;
 
   await saveConfig(options.configPath, nextConfig);
   const syncResult = await syncWorkspace(nextConfig);
@@ -134,7 +141,7 @@ export async function runClone(
 
   return {
     config: nextConfig,
-    repo,
+    repo: nextRepo,
     repositoryPath,
     sourcePath,
     destinationPath,
@@ -252,6 +259,12 @@ function resolveCategory(
 }
 
 function upsertRepo(repos: GhqWsRepoConfig[], repo: GhqWsRepoConfig) {
+  const existing = repos.find(
+    (current) =>
+      current.provider === repo.provider &&
+      current.owner === repo.owner &&
+      current.name === repo.name,
+  );
   const next = repos.filter(
     (current) =>
       !(
@@ -260,6 +273,10 @@ function upsertRepo(repos: GhqWsRepoConfig[], repo: GhqWsRepoConfig) {
         current.name === repo.name
       ),
   );
-  next.push(repo);
+  next.push({
+    ...existing,
+    ...repo,
+    description: repo.description ?? existing?.description,
+  });
   return next;
 }
