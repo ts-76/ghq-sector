@@ -409,6 +409,7 @@ describe("clone workflow", () => {
     }));
     const copyResources = vi.fn(async () => []);
     const generateCodeWorkspace = vi.fn(async () => null);
+    const generateAgentsMd = vi.fn(async () => "/resolved/workspace/AGENTS.md");
     const runHooks = vi.fn(async () => []);
     const accessSpy = vi.fn(async () => undefined);
 
@@ -421,6 +422,9 @@ describe("clone workflow", () => {
     vi.doMock("../src/resources/copy-resources.js", () => ({ copyResources }));
     vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
       generateCodeWorkspace,
+    }));
+    vi.doMock("../src/workspace/generate-agents-md.js", () => ({
+      generateAgentsMd,
     }));
     vi.doMock("../src/hooks/run-hooks.js", () => ({ runHooks }));
     vi.doMock("node:fs/promises", async () => {
@@ -512,6 +516,7 @@ describe("sync workflow", () => {
     const generateCodeWorkspace = vi.fn(
       async () => "/tmp/project/workspace/main.code-workspace",
     );
+    const generateAgentsMd = vi.fn(async () => "/resolved/workspace/AGENTS.md");
 
     vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
     vi.doMock("../src/config/machine-paths.js", () => ({
@@ -522,6 +527,9 @@ describe("sync workflow", () => {
     vi.doMock("../src/workspace/generate-code-workspace.js", () => ({
       generateCodeWorkspace,
     }));
+    vi.doMock("../src/workspace/generate-agents-md.js", () => ({
+      generateAgentsMd,
+    }));
 
     const { runSync } = await importFresh<
       typeof import("../src/commands/sync.js")
@@ -531,6 +539,7 @@ describe("sync workflow", () => {
     expect(syncWorkspace).toHaveBeenCalledWith(resolvedConfig);
     expect(copyResources).toHaveBeenCalledWith(resolvedConfig, "/tmp/project");
     expect(generateCodeWorkspace).toHaveBeenCalledWith(resolvedConfig);
+    expect(generateAgentsMd).toHaveBeenCalledWith(resolvedConfig);
     expect(result).toEqual({
       configPath: "/tmp/project/ghq-sector.config.json",
       workspaceRoot: resolvedConfig.workspaceRoot,
@@ -538,6 +547,7 @@ describe("sync workflow", () => {
       skippedCount: 1,
       copiedResourcesCount: 2,
       codeWorkspacePath: "/tmp/project/workspace/main.code-workspace",
+      agentsMdPath: "/resolved/workspace/AGENTS.md",
       agentSkills: {
         linkedCount: 2,
         duplicateCount: 1,
