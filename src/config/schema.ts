@@ -7,6 +7,7 @@ export const repoSchema = v.object({
   owner: v.string(),
   name: v.string(),
   category: v.string(),
+  description: v.optional(v.string()),
 });
 
 export const globalHooksSchema = v.object({
