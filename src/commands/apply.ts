@@ -11,7 +11,6 @@ export interface ApplyResult {
   skippedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
-  agentsMdPath: string;
   agentSkills: {
     linkedCount: number;
     duplicateCount: number;

@@ -4,7 +4,6 @@ import { resolveConfigForCurrentMachine } from "../config/machine-paths.js";
 import type { GhqWsConfig } from "../config/schema.js";
 import { copyResources } from "../resources/copy-resources.js";
 import { info, success, warn } from "../shared/logger.js";
-import { generateAgentsMd } from "../workspace/generate-agents-md.js";
 import { generateCodeWorkspace } from "../workspace/generate-code-workspace.js";
 import { syncWorkspace } from "../workspace/sync-workspace.js";
 
@@ -15,7 +14,6 @@ export interface RunSyncResult {
   skippedCount: number;
   copiedResourcesCount: number;
   codeWorkspacePath: string | null;
-  agentsMdPath: string;
   agentSkills: {
     linkedCount: number;
     duplicateCount: number;
@@ -46,7 +44,6 @@ export async function runSync(
     path.dirname(loaded.path),
   );
   const codeWorkspacePath = await generateCodeWorkspace(config);
-  const agentsMdPath = await generateAgentsMd(config);
 
   success(`synced workspace: ${result.workspaceRoot}`);
   success(`linked repos: ${result.linked.length}`);
@@ -81,7 +78,6 @@ export async function runSync(
   if (codeWorkspacePath) {
     success(`generated code workspace: ${codeWorkspacePath}`);
   }
-  success(`generated AGENTS.md: ${agentsMdPath}`);
 
   return {
     configPath: loaded.path,
@@ -90,7 +86,6 @@ export async function runSync(
     skippedCount: result.skipped.length,
     copiedResourcesCount: copiedResources.length,
     codeWorkspacePath: codeWorkspacePath ?? null,
-    agentsMdPath,
     agentSkills: {
       linkedCount: result.agentSkills.linked.length,
       duplicateCount: result.agentSkills.duplicateCount,
