@@ -79,7 +79,7 @@ gsec clone owner/repo --yes
 
 ### `gsec sync` — Regenerate workspace from config
 
-Rebuilds symlinks, copies resources, regenerates `.code-workspace`.
+Rebuilds symlinks, copies resources, regenerates `.code-workspace`, and updates the managed ghq-sector block in `AGENTS.md`.
 
 ```bash
 gsec sync
@@ -115,7 +115,7 @@ Run this when something seems wrong — it reports warnings and successes for ev
 
 ### `gsec apply` — Full apply (clone missing + sync + copy config)
 
-Ensures all configured repos are cloned, then syncs the workspace and copies the config into the workspace root.
+Ensures all configured repos are cloned, then syncs the workspace, updates `AGENTS.md`, and copies the config into the workspace root.
 
 ```bash
 gsec apply
@@ -158,6 +158,18 @@ gsec apply
   }
 }
 ```
+
+### AGENTS.md repository descriptions
+
+When `gsec sync`, `gsec apply`, or `gsec clone` updates `AGENTS.md`, ghq-sector writes a managed directory structure block. Each repo line uses a short description of 30 characters or fewer.
+
+Description source order:
+1. `repos[].description` in the ghq-sector config
+2. `package.json.description` in the ghq-managed repository
+3. First useful heading/list/text line from `README.md`, `README.ja.md`, or `readme.md`
+4. `No description yet` when no usable description exists
+
+If a repo shows `No description yet`, improve the source data instead of editing the managed `AGENTS.md` block directly. Prefer a concise `repos[].description` in the ghq-sector config when the workspace needs a local summary, or add a clear `package.json.description` / first README heading in the source repository when the summary belongs to the repo itself. Then run `gsec sync` or `gsec apply` again.
 
 ### Key fields
 

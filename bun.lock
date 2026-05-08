@@ -26,6 +26,7 @@
     },
   },
   "overrides": {
+    "ip-address": "^10.2.0",
     "postcss": "^8.5.10",
   },
   "packages": {
@@ -945,7 +946,7 @@
 
     "npm/init-package-json": ["init-package-json@8.2.5", "", { "dependencies": { "@npmcli/package-json": "^7.0.0", "npm-package-arg": "^13.0.0", "promzard": "^3.0.1", "read": "^5.0.1", "semver": "^7.7.2", "validate-npm-package-name": "^7.0.0" }, "bundled": true }, "sha512-IknQ+upLuJU6t3p0uo9wS3GjFD/1GtxIwcIGYOWR8zL2HxQeJwvxYTgZr9brJ8pyZ4kvpkebM8ZKcyqOeLOHSg=="],
 
-    "npm/ip-address": ["ip-address@10.1.0", "", {}, "sha512-XXADHxXmvT9+CRxhXg56LJovE+bmWnEWB78LB83VZTprKTmaC5QfruXocxzTZ2Kl0DNwKuBdlIhjL8LeY8Sf8Q=="],
+    "npm/ip-address": ["ip-address@10.2.0", "", {}, "sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA=="],
 
     "npm/is-cidr": ["is-cidr@6.0.3", "", { "dependencies": { "cidr-regex": "^5.0.1" }, "bundled": true }, "sha512-tPdsizbDiISrc4PoII6ZfpmAokx0oDKeYqAUp5bXOfznauOFXfEeosKBRrl0o0SriE4xoRR05Czn4YPCFMjSHA=="],
 
