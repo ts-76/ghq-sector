@@ -52,7 +52,10 @@ export async function generateAgentsMd(config: GhqWsConfig) {
 
   try {
     existing = await readFile(agentsMdPath, "utf8");
-  } catch {
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, "ENOENT")) {
+      throw error;
+    }
     await writeFile(agentsMdPath, `# AGENTS.md\n\n${section}`, "utf8");
     return agentsMdPath;
   }
@@ -64,7 +67,10 @@ export async function generateAgentsMd(config: GhqWsConfig) {
 
 function replaceManagedSection(existing: string, section: string) {
   const startIndex = existing.indexOf(START_MARKER);
-  const endIndex = existing.indexOf(END_MARKER);
+  const endIndex =
+    startIndex === -1
+      ? -1
+      : existing.indexOf(END_MARKER, startIndex + START_MARKER.length);
 
   if (startIndex !== -1 && endIndex !== -1 && startIndex < endIndex) {
     const before = existing.slice(0, startIndex).trimEnd();
@@ -75,6 +81,15 @@ function replaceManagedSection(existing: string, section: string) {
   }
 
   return `${existing.trimEnd()}\n\n${section}`;
+}
+
+function isNodeErrorWithCode(error: unknown, code: string) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
 }
 
 function getReposForCategory(repos: GhqWsRepoConfig[], category: string) {

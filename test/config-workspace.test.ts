@@ -325,4 +325,89 @@ describe("AGENTS.md generation", () => {
     expect(content).not.toContain("tools/");
     expect(content).not.toContain("dotfiles/");
   });
+
+  it("does not overwrite AGENTS.md when reading it fails for reasons other than missing file", async () => {
+    const root = await makeTempRoot();
+    const config = {
+      ...createConfig(root),
+      repos: [],
+    };
+    const readError = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    const writeFileSpy = vi.fn(async () => undefined);
+
+    vi.doMock("node:fs/promises", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
+      return {
+        ...actual,
+        readFile: vi.fn(async () => {
+          throw readError;
+        }),
+        writeFile: writeFileSpy,
+      };
+    });
+
+    const { generateAgentsMd } = await importFresh<
+      typeof import("../src/workspace/generate-agents-md.js")
+    >("../src/workspace/generate-agents-md.js");
+
+    await expect(generateAgentsMd(config)).rejects.toThrow("permission denied");
+    expect(writeFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("matches the managed block end marker after the managed block start", async () => {
+    const root = await makeTempRoot();
+    const baseConfig = createConfig(root);
+    await mkdir(baseConfig.workspaceRoot, { recursive: true });
+    await mkdir(path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life", "README.md"),
+      "# Life\n",
+      "utf8",
+    );
+    const agentsMdPath = path.join(baseConfig.workspaceRoot, "AGENTS.md");
+    await writeFile(
+      agentsMdPath,
+      [
+        "# Existing instructions",
+        "",
+        "<!-- ghq-sector:end -->",
+        "",
+        "Keep this.",
+        "",
+        "<!-- ghq-sector:start -->",
+        "old/",
+        "  stale/ - github.com/old/stale",
+        "<!-- ghq-sector:end -->",
+        "",
+        "Keep this too.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const config = {
+      ...baseConfig,
+      categories: ["projects"],
+      repos: [baseConfig.repos[0]],
+    };
+    const { generateAgentsMd } = await import(
+      "../src/workspace/generate-agents-md.js"
+    );
+
+    await generateAgentsMd(config);
+    const content = await readFile(agentsMdPath, "utf8");
+
+    expect(content).toContain("Keep this.");
+    expect(content).toContain("Keep this too.");
+    expect(content).toContain("projects/");
+    expect(content).toContain("  life/ - Life");
+    expect(content).not.toContain("old/");
+    expect(content).not.toContain("stale/");
+  });
 });
