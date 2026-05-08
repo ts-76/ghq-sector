@@ -75,9 +75,7 @@ function replaceManagedSection(existing: string, section: string) {
   if (startIndex !== -1 && endIndex !== -1 && startIndex < endIndex) {
     const before = existing.slice(0, startIndex).trimEnd();
     const after = existing.slice(endIndex + END_MARKER.length).trimStart();
-    return (
-      [before, section.trimEnd(), after].filter(Boolean).join("\n\n") + "\n"
-    );
+    return `${[before, section.trimEnd(), after].filter(Boolean).join("\n\n")}\n`;
   }
 
   return `${existing.trimEnd()}\n\n${section}`;
