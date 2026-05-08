@@ -81,6 +81,11 @@ export function buildJsonSchema(): JsonSchema {
               description:
                 "Category directory under workspaceRoot where the symlink should be created.",
             },
+            description: {
+              type: "string",
+              description:
+                "Optional short repository summary used first in generated AGENTS.md directory listings.",
+            },
           },
         },
       },

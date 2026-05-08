@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -103,6 +103,22 @@ describe("config validation", () => {
     expect(template.agentSkills).toEqual({
       enabled: false,
       providers: ["agents", "claude"],
+    });
+  });
+
+  it("exposes optional repo descriptions in the JSON schema", async () => {
+    const { buildJsonSchema } = await import(
+      "../src/config/build-json-schema.js"
+    );
+
+    const schema = buildJsonSchema();
+    const repoDescription =
+      schema.properties?.repos.items?.properties?.description;
+
+    expect(repoDescription).toMatchObject({
+      type: "string",
+      description:
+        "Optional short repository summary used first in generated AGENTS.md directory listings.",
     });
   });
 });
@@ -228,5 +244,170 @@ describe("workspace planning", () => {
       { path: "projects/life" },
       { path: "tools/dotfiles" },
     ]);
+  });
+});
+
+describe("AGENTS.md generation", () => {
+  it("creates AGENTS.md from config when missing", async () => {
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "life"), {
+      recursive: true,
+    });
+    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "dotfiles"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(config.ghqRoot, "github.com", "ts-76", "life", "package.json"),
+      JSON.stringify({
+        description: "Personal knowledge and automation toolkit",
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(config.ghqRoot, "github.com", "ts-76", "dotfiles", "README.md"),
+      "# Dotfiles\n\nShell and editor settings.\n",
+      "utf8",
+    );
+    const { generateAgentsMd } = await import(
+      "../src/workspace/generate-agents-md.js"
+    );
+
+    const agentsMdPath = await generateAgentsMd(config);
+    const content = await readFile(agentsMdPath, "utf8");
+
+    expect(agentsMdPath).toBe(path.join(config.workspaceRoot, "AGENTS.md"));
+    expect(content).toContain("# AGENTS.md");
+    expect(content).toContain("<!-- ghq-sector:start -->");
+    expect(content).toContain("projects/");
+    expect(content).toContain("  life/ - Personal knowledge and automa…");
+    expect(content).toContain("tools/");
+    expect(content).toContain("  dotfiles/ - Dotfiles");
+    expect(content).toContain("docs/");
+  });
+
+  it("updates only the managed block and removes entries no longer in config", async () => {
+    const root = await makeTempRoot();
+    const baseConfig = createConfig(root);
+    await mkdir(baseConfig.workspaceRoot, { recursive: true });
+    const agentsMdPath = path.join(baseConfig.workspaceRoot, "AGENTS.md");
+    await writeFile(
+      agentsMdPath,
+      `# Existing instructions\n\nKeep this.\n\n<!-- ghq-sector:start -->\nold/\n  stale/ - github.com/old/stale\n<!-- ghq-sector:end -->\n\nKeep this too.\n`,
+      "utf8",
+    );
+    await mkdir(path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life", "README.md"),
+      "# Life\n",
+      "utf8",
+    );
+    const config = {
+      ...baseConfig,
+      categories: ["projects"],
+      repos: [baseConfig.repos[0]],
+    };
+    const { generateAgentsMd } = await import(
+      "../src/workspace/generate-agents-md.js"
+    );
+
+    await generateAgentsMd(config);
+    const content = await readFile(agentsMdPath, "utf8");
+
+    expect(content).toContain("Keep this.");
+    expect(content).toContain("Keep this too.");
+    expect(content).toContain("projects/");
+    expect(content).toContain("  life/ - Life");
+    expect(content).not.toContain("old/");
+    expect(content).not.toContain("stale/");
+    expect(content).not.toContain("tools/");
+    expect(content).not.toContain("dotfiles/");
+  });
+
+  it("does not overwrite AGENTS.md when reading it fails for reasons other than missing file", async () => {
+    const root = await makeTempRoot();
+    const config = {
+      ...createConfig(root),
+      repos: [],
+    };
+    const readError = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    const writeFileSpy = vi.fn(async () => undefined);
+
+    vi.doMock("node:fs/promises", async () => {
+      const actual =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
+      return {
+        ...actual,
+        readFile: vi.fn(async () => {
+          throw readError;
+        }),
+        writeFile: writeFileSpy,
+      };
+    });
+
+    const { generateAgentsMd } = await importFresh<
+      typeof import("../src/workspace/generate-agents-md.js")
+    >("../src/workspace/generate-agents-md.js");
+
+    await expect(generateAgentsMd(config)).rejects.toThrow("permission denied");
+    expect(writeFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("matches the managed block end marker after the managed block start", async () => {
+    const root = await makeTempRoot();
+    const baseConfig = createConfig(root);
+    await mkdir(baseConfig.workspaceRoot, { recursive: true });
+    await mkdir(path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(baseConfig.ghqRoot, "github.com", "ts-76", "life", "README.md"),
+      "# Life\n",
+      "utf8",
+    );
+    const agentsMdPath = path.join(baseConfig.workspaceRoot, "AGENTS.md");
+    await writeFile(
+      agentsMdPath,
+      [
+        "# Existing instructions",
+        "",
+        "<!-- ghq-sector:end -->",
+        "",
+        "Keep this.",
+        "",
+        "<!-- ghq-sector:start -->",
+        "old/",
+        "  stale/ - github.com/old/stale",
+        "<!-- ghq-sector:end -->",
+        "",
+        "Keep this too.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const config = {
+      ...baseConfig,
+      categories: ["projects"],
+      repos: [baseConfig.repos[0]],
+    };
+    const { generateAgentsMd } = await import(
+      "../src/workspace/generate-agents-md.js"
+    );
+
+    await generateAgentsMd(config);
+    const content = await readFile(agentsMdPath, "utf8");
+
+    expect(content).toContain("Keep this.");
+    expect(content).toContain("Keep this too.");
+    expect(content).toContain("projects/");
+    expect(content).toContain("  life/ - Life");
+    expect(content).not.toContain("old/");
+    expect(content).not.toContain("stale/");
   });
 });

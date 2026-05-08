@@ -73,6 +73,7 @@
     "vitest": "^4.1.5"
   },
   "overrides": {
+    "ip-address": "^10.2.0",
     "postcss": "^8.5.10"
   }
 }
