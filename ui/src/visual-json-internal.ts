@@ -24,9 +24,9 @@ export const DEFAULT_CSS_VARS = {
 };
 
 export const DIFF_COLORS = {
-  added: "#10b981",
-  removed: "#ef4444",
-  changed: "#f59e0b",
+  added: { bg: "#12352b", marker: "+", label: "#86efac" },
+  removed: { bg: "#3b1f27", marker: "-", label: "#fca5a5" },
+  changed: { bg: "#382f1d", marker: "~", label: "#fcd34d" },
 };
 
 export interface DragState {
@@ -79,12 +79,19 @@ export function getResolvedSchema(
   return getPropertySchema(schema, path, rootSchema);
 }
 
-export function formatValue(value: TreeNode["value"]) {
+export function formatValue(value: unknown) {
+  if (value === undefined) {
+    return "";
+  }
   if (value === null) {
     return "null";
   }
 
   if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+
+  if (typeof value === "object") {
     return JSON.stringify(value);
   }
 
