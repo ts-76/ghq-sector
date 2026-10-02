@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, vi } from "vitest";
@@ -7,7 +7,9 @@ import type { GhqWsConfig } from "../src/config/schema.js";
 const tempRoots: string[] = [];
 
 export async function makeTempRoot() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "ghq-ws-test-"));
+  const root = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), "ghq-ws-test-")),
+  );
   tempRoots.push(root);
   return root;
 }

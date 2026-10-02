@@ -36,7 +36,7 @@ jobs:
         run: bun install --cwd ui --frozen-lockfile
 
       - name: Dependency audit
-        run: bun audit --audit-level=moderate
+        run: bun run audit
 
   codeql:
     runs-on: ubuntu-latest
