@@ -230,7 +230,7 @@ Start the local config editor UI. The editor is built with [visual-json](https:/
 ```bash
 gsec edit
 gsec edit --config ./ghq-sector.config.json --no-open
-gsec edit --host 0.0.0.0 --port 4173
+gsec edit --host localhost --port 4173
 ```
 
 Options:
@@ -239,6 +239,12 @@ Options:
 - `--host <host>`: host to bind the editor server to
 - `--port <port>`: port to bind the editor server to
 - `--no-open`: do not open a browser automatically
+
+The editor binds only to `127.0.0.1`, `::1`, or `localhost`; other hosts (including `0.0.0.0`) are rejected. Open the exact address printed by the command. All API requests require that Host and the same Origin. A browser's same-origin fetch without Origin is accepted; explicit local clients without Origin must send `X-Ghq-Sector-Request: 1`. Cross-site requests are rejected, including reads. This is a local editor, not an authenticated shared service.
+
+Save, Preview, Apply, and draft repo proposals accept UTF-8 `application/json` with a 1 MiB body limit. Invalid JSON/config returns 400, oversized bodies 413, and other content types 415. Repo proposals accept `{config: currentDraft, repo: optionalRepo}` and return a draft without writing the config. During Save/Apply, competing API requests for that config return 409 busy; retry only after completion. An exclusive `<config-file>.editor-lock` lease protects editor instances across processes, including different ports; external CLI tools or manual file edits do not participate. After an abnormal exit, first confirm the recorded PID is no longer running, then remove only that stale lease file before retrying. The editor never removes an existing lease automatically.
+
+An Apply failure returns fixed completed stage names and a failed stage, without underlying exception details. `configSaved` indicates whether Save completed; the failed stage may have made partial changes. Completed changes are not rolled back. Inspect the workspace and run Doctor before retrying hooks or Apply.
 
 ## Config file
 

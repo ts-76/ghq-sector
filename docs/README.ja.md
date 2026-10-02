@@ -216,7 +216,7 @@ gsec doctor
 ```bash
 gsec edit
 gsec edit --config ./ghq-sector.config.json --no-open
-gsec edit --host 0.0.0.0 --port 4173
+gsec edit --host localhost --port 4173
 ```
 
 オプション:
@@ -225,6 +225,12 @@ gsec edit --host 0.0.0.0 --port 4173
 - `--host <host>`: editor server の bind host
 - `--port <port>`: editor server の bind port
 - `--no-open`: ブラウザを自動で開かない
+
+editor の bind は `127.0.0.1` / `::1` / `localhost` のみです。`0.0.0.0` などは起動前に拒否します。表示された URL をそのまま開いてください。全 API で Host と同じ Origin を検証します。Origin がないブラウザの same-origin fetch は許可し、それ以外のローカルクライアントには `X-Ghq-Sector-Request: 1` を要求します。読み取りも cross-site request は拒否します。
+
+Save / Preview / Apply / repo ドラフト提案は UTF-8 の `application/json`、最大 1 MiB です。不正 JSON・schema は 400、サイズ超過は 413、Content-Type 不一致は 415 を返します。repo 提案は `{config: currentDraft, repo: optionalRepo}` を受け、ファイル保存せずドラフトを返します。Save / Apply 中は同じ設定への競合 API に 409 busy を返します。設定に隣接する `<config-file>.editor-lock` を排他的に作成し、別プロセス・別ポートの編集サーバー間でも保護します。外部 CLI や手動ファイル編集は含みません。異常終了で残った lease は、記録された PID が停止済みか確認してから、その lease ファイルだけを手動で削除してください。既存 lease を自動削除しません。
+
+Apply 途中失敗は内部例外の詳細を伏せ、完了した stage と失敗 stage、`configSaved` を返します。失敗 stage は一部を変更済みの場合があり、完了した操作を巻き戻しません。workspace と Doctor の結果を確認してから hooks / Apply を再実行してください。
 
 ## Config file
 

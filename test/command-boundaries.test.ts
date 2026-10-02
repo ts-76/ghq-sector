@@ -246,7 +246,11 @@ describe("apply workflow", () => {
 
     expect(loadConfig).toHaveBeenCalledWith("/tmp/project");
     expect(ensureRepos).toHaveBeenCalledWith(runtimeConfig);
-    expect(runSync).toHaveBeenCalledWith("/tmp/project", runtimeConfig);
+    expect(runSync).toHaveBeenCalledWith(
+      "/tmp/project",
+      runtimeConfig,
+      expect.any(Function),
+    );
     expect(copyConfigToWorkspace).toHaveBeenCalledWith(
       "/tmp/project/ghq-sector.config.json",
       runtimeConfig,
@@ -310,7 +314,11 @@ describe("apply workflow", () => {
     await runApply(directConfigPath);
 
     expect(loadConfig).toHaveBeenCalledWith(directConfigPath);
-    expect(runSync).toHaveBeenCalledWith(directConfigPath, config);
+    expect(runSync).toHaveBeenCalledWith(
+      directConfigPath,
+      config,
+      expect.any(Function),
+    );
   });
 
   it("ghq gets only missing repos in ensureRepos and runs clone hooks around them", async () => {

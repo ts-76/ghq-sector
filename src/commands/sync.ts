@@ -7,6 +7,7 @@ import { info, success, warn } from "../shared/logger.js";
 import { generateAgentsMd } from "../workspace/generate-agents-md.js";
 import { generateCodeWorkspace } from "../workspace/generate-code-workspace.js";
 import { syncWorkspace } from "../workspace/sync-workspace.js";
+import type { ApplyProgressReporter } from "./apply-progress.js";
 
 export interface RunSyncResult {
   configPath: string;
@@ -34,19 +35,28 @@ export interface RunSyncResult {
 export async function runSync(
   cwd = process.cwd(),
   runtimeConfig?: GhqWsConfig,
+  report?: ApplyProgressReporter,
 ): Promise<RunSyncResult> {
   const loaded = await loadConfig(cwd);
   info(`loaded config: ${loaded.path}`);
 
   const config =
     runtimeConfig ?? (await resolveConfigForCurrentMachine(loaded.config));
+  report?.("links", false);
   const result = await syncWorkspace(config);
+  report?.("links", true);
+  report?.("resources", false);
   const copiedResources = await copyResources(
     config,
     path.dirname(loaded.path),
   );
+  report?.("resources", true);
+  report?.("code-workspace", false);
   const codeWorkspacePath = await generateCodeWorkspace(config);
+  report?.("code-workspace", true);
+  report?.("agents-summary", false);
   const agentsMdPath = await generateAgentsMd(config);
+  report?.("agents-summary", true);
 
   success(`synced workspace: ${result.workspaceRoot}`);
   success(`linked repos: ${result.linked.length}`);

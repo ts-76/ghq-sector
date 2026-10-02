@@ -66,7 +66,7 @@ cli.command("doctor", "check environment and config").action(async () => {
 cli
   .command("edit", "open config editor UI")
   .option("--config <path>", "path to config file or directory containing it")
-  .option("--host <host>", "host to bind editor server", {
+  .option("--host <host>", "loopback host: 127.0.0.1, ::1, or localhost", {
     default: "127.0.0.1",
   })
   .option("--port <port>", "port to bind editor server", { default: "4173" })
