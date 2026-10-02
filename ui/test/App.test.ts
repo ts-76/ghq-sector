@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App.svelte";
 
 vi.mock("@visual-json/svelte", async () => ({
+  ...(await vi.importActual<typeof import("@visual-json/svelte")>(
+    "@visual-json/svelte",
+  )),
   JsonEditor: (await import("./JsonEditor.svelte")).default,
 }));
 
@@ -101,7 +104,7 @@ function raw() {
   ).value;
 }
 function dirty() {
-  return document.querySelector(".badges")?.textContent?.includes("unsaved");
+  return Boolean(document.querySelector(".badges .dirty"));
 }
 async function start() {
   instance = mount(App, { target: document.body });
@@ -148,7 +151,28 @@ beforeEach(() => {
           : response({
               path: "/fixture/config.json",
               format: configFormat,
-              schema: {},
+              schema: {
+                type: "object",
+                properties: {
+                  defaults: {
+                    type: "object",
+                    properties: {
+                      provider: { type: "string" },
+                      category: { type: "string" },
+                    },
+                  },
+                  repos: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        provider: { type: "string" },
+                        category: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
               value: serverValue,
               raw:
                 configFormat === "yaml"
@@ -448,5 +472,282 @@ describe("JSON draft retention", () => {
     ])
       expect(button(label).disabled).toBe(true);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("JSON editor presentation", () => {
+  it("shows added, removed, changed values in Diff and refreshes the baseline only after Save", async () => {
+    await start();
+    await click("Raw");
+    await input(
+      "Raw JSON config",
+      JSON.stringify({ categories: ["changed"], repos: [], added: "new" }),
+    );
+    await click("Diff");
+    const diff = document.querySelector(
+      '[aria-label="Changes from saved config"]',
+    );
+    expect(diff?.textContent).toContain("added");
+    expect(diff?.textContent).toContain("removed");
+    expect(diff?.textContent).toContain("modified");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Not applied in this session");
+    await click("Save config");
+    expect(diff?.textContent).toContain("No differences detected");
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saved config");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Not applied in this session");
+  });
+
+  it("uses the saved raw JSON as the initial Visual draft and baseline", async () => {
+    configHandler = () =>
+      response({
+        path: "/fixture/config.json",
+        format: "json",
+        schema: null,
+        raw: JSON.stringify(original),
+        value: {
+          repos: [],
+          defaults: original.defaults,
+          categories: ["work"],
+          ignoredDefault: "normalized",
+        },
+      });
+    await start();
+    await click("Raw");
+    expect(JSON.parse(raw())).toEqual(original);
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saved config");
+    await click("Diff");
+    expect(
+      document.querySelector('[aria-label="Changes from saved config"]')
+        ?.textContent,
+    ).toContain("No differences detected");
+  });
+
+  it("distinguishes Apply running, failed with completed stages, and successful", async () => {
+    await start();
+    await click("Raw");
+    const draft = { ...original, categories: ["changed"] };
+    await input("Raw JSON config", JSON.stringify(draft));
+    const pending = deferred();
+    applyHandler = () => pending.promise;
+    await click("Apply workspace");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Applying");
+    serverValue = draft;
+    pending.resolve(
+      {
+        code: "WORKSPACE_SYNC_CONFLICT",
+        message: "stopped",
+        progress: {
+          configSaved: true,
+          completed: ["ensure-repos"],
+          failedStage: "sync",
+          failedStageMayHaveChanges: false,
+        },
+      },
+      409,
+    );
+    await settle();
+    expect(JSON.parse(raw())).toEqual(draft);
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Apply failed");
+    expect(document.body.textContent).toContain(
+      "Config was saved before Apply stopped.",
+    );
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saved config");
+    await click("Diff");
+    expect(
+      document.querySelector('[aria-label="Changes from saved config"]')
+        ?.textContent,
+    ).toContain("No differences detected");
+    await click("Raw");
+    expect(document.body.textContent).toContain("ensure-repos");
+    expect(document.body.textContent).toContain(
+      "existing files or links were protected",
+    );
+    applyHandler = () => response({ ok: true, value: draft });
+    await click("Apply workspace");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Applied");
+    await input("Raw JSON config", JSON.stringify(original));
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Not applied in this session");
+  });
+
+  it("confirms a partial Apply save without replacing newer edits", async () => {
+    await start();
+    await click("Raw");
+    const sent = { ...original, categories: ["sent"] };
+    const newer = { ...original, categories: ["newer"] };
+    await input("Raw JSON config", JSON.stringify(sent));
+    const pending = deferred();
+    applyHandler = () => pending.promise;
+    await click("Apply workspace");
+    await input("Raw JSON config", JSON.stringify(newer));
+    serverValue = sent;
+    pending.resolve(
+      {
+        code: "APPLY_FAILED",
+        progress: {
+          configSaved: true,
+          completed: [],
+          failedStage: "sync",
+          failedStageMayHaveChanges: true,
+        },
+      },
+      500,
+    );
+    await settle();
+    expect(JSON.parse(raw())).toEqual(newer);
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Editing (unsaved)");
+    await click("Diff");
+    expect(
+      document.querySelector('[aria-label="Changes from saved config"]')
+        ?.textContent,
+    ).toContain('"sent"');
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Apply failed");
+  });
+
+  it("labels the saved baseline unconfirmed if the partial-save read fails", async () => {
+    await start();
+    await click("Raw");
+    await input(
+      "Raw JSON config",
+      JSON.stringify({ ...original, categories: ["sent"] }),
+    );
+    configHandler = () => response({ message: "read unavailable" }, 500);
+    applyHandler = () =>
+      response(
+        {
+          code: "APPLY_FAILED",
+          progress: {
+            configSaved: true,
+            completed: [],
+            failedStage: "sync",
+            failedStageMayHaveChanges: true,
+          },
+        },
+        500,
+      );
+    await click("Apply workspace");
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saved config needs confirmation");
+    expect(document.body.textContent).toContain(
+      "Saved contents could not be confirmed",
+    );
+    expect(JSON.parse(raw()).categories).toEqual(["sent"]);
+  });
+
+  it("does not revive an old Applied badge after a failed retry and Reload", async () => {
+    await start();
+    applyHandler = () =>
+      response({ ok: true, value: original, result: { linked: 5 } });
+    await click("Apply workspace");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Applied");
+    applyHandler = () =>
+      response(
+        {
+          code: "APPLY_FAILED",
+          progress: {
+            configSaved: true,
+            completed: [],
+            failedStage: "sync",
+            failedStageMayHaveChanges: true,
+          },
+        },
+        500,
+      );
+    await click("Apply workspace");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Apply failed");
+    await click("Reload");
+    expect(
+      document.querySelector('[data-testid="apply-status"]')?.textContent,
+    ).toBe("Not applied in this session");
+  });
+
+  it("follows draft choices while accepting custom hosts and categories without losing edits", async () => {
+    await start();
+    await click("Raw");
+    await input(
+      "Raw JSON config",
+      JSON.stringify({ ...original, categories: ["new-category"] }),
+    );
+    expect(
+      document.querySelector("#category-choices")?.textContent,
+    ).not.toContain("work");
+    expect(
+      document.querySelector('#category-choices option[value="new-category"]'),
+    ).not.toBeNull();
+    await input("Default provider", "git.private.example");
+    await input("Default category", "custom-category");
+    expect(JSON.parse(raw()).defaults).toEqual({
+      owner: "original",
+      provider: "git.private.example",
+      category: "custom-category",
+    });
+    expect(JSON.parse(raw()).categories).toEqual(["new-category"]);
+    expect(serverValue).toEqual(original);
+    expect(
+      document.querySelector(
+        '#provider-choices option[value="git.private.example"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("labels invalid JSON and hides old preview instead of showing it as current", async () => {
+    await start();
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="preview-status"]')?.textContent,
+      ).toContain("matches the current draft"),
+    );
+    await click("Raw");
+    await input("Raw JSON config", "{broken");
+    expect(button("Diff").disabled).toBe(true);
+    expect(
+      document.querySelector('[data-testid="preview-status"]')?.textContent,
+    ).toContain("unavailable: invalid JSON");
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Invalid JSON");
+    expect(raw()).toBe("{broken");
+  });
+
+  it("keeps a busy Save response distinct from a saved config", async () => {
+    await start();
+    await click("Raw");
+    const draft = { ...original, categories: ["draft"] };
+    await input("Raw JSON config", JSON.stringify(draft));
+    putHandler = () => response({ code: "EDITOR_BUSY" }, 409);
+    await click("Save config");
+    expect(document.body.textContent).toContain(
+      "Another Save or Apply is running",
+    );
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Editing (unsaved)");
+    expect(JSON.parse(raw())).toEqual(draft);
   });
 });

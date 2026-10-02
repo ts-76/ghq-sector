@@ -1,5 +1,6 @@
 <script lang="ts">
 import {
+  DiffView,
   JsonEditor,
   type JsonSchema,
   type JsonValue,
@@ -14,9 +15,10 @@ import {
   Stethoscope,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import { withDraftChoices } from "./editor-schema.js";
 
 type ConfigFormat = "json" | "yaml";
-type EditorTab = "visual" | "raw";
+type EditorTab = "visual" | "raw" | "diff";
 
 interface PreviewResult {
   ghqRoot: string;
@@ -194,6 +196,14 @@ let previewResult = $state<PreviewResult | null>(null);
 let applyResult = $state<ApplyResult | null>(null);
 let appliedSnapshot = $state("");
 let previewSnapshot = $state("");
+let applyFailed = $state(false);
+let savedConfigUnconfirmed = $state(false);
+let applyProgress = $state<{
+  configSaved: boolean;
+  completed: string[];
+  failedStage: string;
+  failedStageMayHaveChanges: boolean;
+} | null>(null);
 let doctorResult = $state<DoctorResult | null>(null);
 let rawValue = $state("");
 let currentTab = $state<EditorTab>("visual");
@@ -210,6 +220,43 @@ let draftError = $derived.by(() => {
 });
 let draftValid = $derived(format === "json" && !draftError);
 let unsavedChanges = $derived(serializeCurrentValue() !== originalSnapshot);
+let editorSchema = $derived(withDraftChoices(schema, value));
+let savedValue = $derived(
+  format === "json" && originalSnapshot ? JSON.parse(originalSnapshot) : {},
+);
+let currentSnapshot = $derived(serializeCurrentValue());
+let persistenceStatus = $derived(
+  format !== "json"
+    ? "Read-only YAML"
+    : !draftValid
+      ? "Invalid JSON"
+      : savedConfigUnconfirmed
+        ? "Saved config needs confirmation"
+        : saving
+          ? "Saving"
+          : unsavedChanges
+            ? "Editing (unsaved)"
+            : "Saved config",
+);
+let workspaceStatus = $derived(
+  applying
+    ? "Applying"
+    : applyFailed
+      ? "Apply failed"
+      : appliedSnapshot && appliedSnapshot === currentSnapshot
+        ? "Applied"
+        : "Not applied in this session",
+);
+let providerChoices = $derived(
+  editorSchema?.properties?.defaults?.properties?.provider?.examples ?? [],
+);
+
+let draftObjectReady = $derived(
+  draftValid &&
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value),
+);
 // A revision identifies an edit; the epoch identifies a loaded file/baseline.
 let draftRevision = 0;
 let loadEpoch = 0;
@@ -341,18 +388,25 @@ function editVisual(next: JsonValue) {
 }
 
 function switchTab(tab: EditorTab) {
-  if (tab === "visual" && !draftValid) return;
+  if (tab !== "raw" && !draftValid) return;
   currentTab = tab;
 }
 
 async function responsePayload(response: Response) {
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(
-      typeof payload.message === "string"
-        ? payload.message
-        : `Request failed (${response.status})`,
-    );
+    const message =
+      payload.code === "EDITOR_BUSY"
+        ? "Another Save or Apply is running. Wait and try again."
+        : payload.code === "WORKSPACE_SYNC_CONFLICT"
+          ? "Workspace conflict: existing files or links were protected."
+          : typeof payload.message === "string"
+            ? payload.message
+            : `Request failed (${response.status})`;
+    throw Object.assign(new Error(message), {
+      code: payload.code,
+      progress: payload.progress,
+    });
   }
   return payload;
 }
@@ -408,17 +462,20 @@ async function load() {
     const payload = await responsePayload(await fetch("/api/config"));
     if (epoch !== loadEpoch || revision !== draftRevision) return false;
     schema = payload.schema ?? null;
-    value = payload.value;
+    value = payload.format === "json" ? JSON.parse(payload.raw) : payload.value;
     configPath = payload.path;
     format = payload.format;
     rawValue = payload.raw;
-    originalSnapshot =
-      format === "json" ? serializeConfig(payload.value) : payload.raw;
+    originalSnapshot = format === "json" ? serializeConfig(value) : payload.raw;
     currentTab = format === "json" ? currentTab : "raw";
+    applyFailed = false;
+    savedConfigUnconfirmed = false;
+    applyProgress = null;
     draftRevision++;
     previewResult = null;
     previewSnapshot = "";
     applyResult = null;
+    appliedSnapshot = "";
     return true;
   } catch (error) {
     if (epoch === loadEpoch)
@@ -464,6 +521,7 @@ async function save() {
     if (epoch === loadEpoch) {
       originalSnapshot =
         result.value === undefined ? snapshot : serializeConfig(result.value);
+      savedConfigUnconfirmed = false;
       if (revision === draftRevision) successMessage = `saved ${configPath}`;
     }
   } catch (error) {
@@ -525,6 +583,10 @@ async function applyWorkspace() {
   const epoch = loadEpoch;
   const revision = draftRevision;
   applying = true;
+  applyResult = null;
+  appliedSnapshot = "";
+  applyFailed = false;
+  applyProgress = null;
   previewRequest++;
   previewLoading = false;
   successMessage = "";
@@ -541,14 +603,52 @@ async function applyWorkspace() {
     const acknowledged =
       result.value === undefined ? snapshot : serializeConfig(result.value);
     originalSnapshot = acknowledged;
+    savedConfigUnconfirmed = false;
     appliedSnapshot = acknowledged;
     if (revision !== draftRevision) return;
     applyResult = result.result ?? null;
     successMessage = result.message ?? `applied ${configPath}`;
   } catch (error) {
-    if (epoch === loadEpoch && revision === draftRevision)
-      errorMessage =
-        error instanceof Error ? error.message : "failed to apply workspace";
+    if (epoch === loadEpoch) {
+      applyFailed = true;
+      if (
+        error instanceof Error &&
+        "progress" in error &&
+        error.progress &&
+        typeof error.progress === "object"
+      ) {
+        const progress = error.progress as Record<string, unknown>;
+        applyProgress = {
+          configSaved: progress.configSaved === true,
+          completed: Array.isArray(progress.completed)
+            ? progress.completed.filter(
+                (stage): stage is string => typeof stage === "string",
+              )
+            : [],
+          failedStage:
+            typeof progress.failedStage === "string"
+              ? progress.failedStage
+              : "unknown",
+          failedStageMayHaveChanges:
+            progress.failedStageMayHaveChanges === true,
+        };
+      }
+      if (applyProgress?.configSaved) {
+        savedConfigUnconfirmed = true;
+        try {
+          const saved = await responsePayload(await fetch("/api/config"));
+          if (epoch === loadEpoch && saved.format === "json") {
+            originalSnapshot = serializeConfig(JSON.parse(saved.raw));
+            savedConfigUnconfirmed = false;
+          }
+        } catch {
+          // Preserve the draft and show that the persisted baseline is unknown.
+        }
+      }
+      if (epoch === loadEpoch && revision === draftRevision)
+        errorMessage =
+          error instanceof Error ? error.message : "failed to apply workspace";
+    }
   } finally {
     applying = false;
   }
@@ -647,6 +747,31 @@ function addSelectedGhRepo() {
     `added ${selected.nameWithOwner} to draft`,
   );
 }
+function editDefault(field: "provider" | "category", text: string) {
+  if (!draftObjectReady || loading || saving || applying) return;
+  const config = getConfigObject();
+  const defaults =
+    config.defaults &&
+    typeof config.defaults === "object" &&
+    !Array.isArray(config.defaults)
+      ? (config.defaults as Record<string, unknown>)
+      : {};
+  editVisual({
+    ...config,
+    defaults: { ...defaults, [field]: text },
+  } as JsonValue);
+}
+
+function defaultText(field: "provider" | "category") {
+  if (!draftValid) return "";
+  const config = getCurrentPayload();
+  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
+  const defaults = config.defaults;
+  if (!defaults || typeof defaults !== "object" || Array.isArray(defaults))
+    return "";
+  const text = (defaults as Record<string, unknown>)[field];
+  return typeof text === "string" ? text : "";
+}
 </script>
 
 <main class="app">
@@ -659,19 +784,31 @@ function addSelectedGhRepo() {
     <div class="actions priority-actions">
       <div class="badges compact">
         <span>{format}</span>
-        <span class:dirty={unsavedChanges}>{unsavedChanges ? 'unsaved' : 'saved'}</span>
+        <span class:dirty={unsavedChanges} data-testid="save-status">{persistenceStatus}</span>
+        <span data-testid="apply-status">{workspaceStatus}</span>
       </div>
       <button type="button" class="primary-button icon-only-button" onclick={save} disabled={!draftValid || loading || saving || applying} aria-label={saving ? 'Saving config' : 'Save config'} data-tooltip={saving ? 'Saving config' : 'Save config'}>
-        <Save size={14} />
+        <Save size={14} /><span>Save</span>
       </button>
       <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={!draftValid || loading || saving || applying} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
-        <CheckCheck size={14} />
+        <CheckCheck size={14} /><span>Apply</span>
       </button>
       <button type="button" class="ghost-button icon-only-button" onclick={reload} disabled={loading || saving || applying || doctorLoading || ghReposLoading} aria-label="Reload" data-tooltip="Reload">
         <RotateCcw size={14} />
       </button>
     </div>
   </section>
+
+  <p class="muted operation-help">Save writes the JSON config. Apply saves it and updates the workspace.</p>
+  {#if applyProgress}
+    <p class="status error" role="alert">
+      {applyProgress.configSaved ? 'Config was saved before Apply stopped.' : 'Config save was not completed.'}
+      {#if savedConfigUnconfirmed}Saved contents could not be confirmed. Reload to check the file; your draft is retained.{/if}
+      Completed: {applyProgress.completed.join(', ') || 'none'}. Stopped at: {applyProgress.failedStage}.
+      {#if applyProgress.failedStageMayHaveChanges}The stopped stage may have changed files.{/if}
+      Completed changes were not rolled back. Your draft is still here.
+    </p>
+  {/if}
 
   {#if draftError && !loading}
     <p class="status error" role="alert">{draftError}</p>
@@ -693,19 +830,27 @@ function addSelectedGhRepo() {
           <div class="tabs segmented-tabs">
             <button type="button" class:active={currentTab === 'visual'} onclick={() => switchTab('visual')} disabled={!draftValid}>Visual</button>
             <button type="button" class:active={currentTab === 'raw'} onclick={() => switchTab('raw')}>Raw</button>
+            <button type="button" class:active={currentTab === 'diff'} onclick={() => switchTab('diff')} disabled={!draftValid}>Diff</button>
           </div>
         </div>
       </div>
 
       {#if loading}
         <div class="placeholder editor-placeholder">Loading config...</div>
+      {:else if !draftValid && currentTab !== 'raw'}
+        <p class="placeholder">Return to Raw to repair the JSON. No old draft is shown.</p>
+      {:else if currentTab === 'diff'}
+        <section class="diff-shell" aria-label="Changes from saved config">
+          {#if savedConfigUnconfirmed}<p class="muted">Diff uses the last confirmed saved config; current saved contents are unconfirmed.</p>{/if}
+          <DiffView originalJson={savedValue} currentJson={value} class="config-diff" />
+        </section>
       {:else if currentTab === 'raw'}
         <textarea class="raw-editor" aria-label="Raw JSON config" value={rawValue} oninput={(event) => editRaw(event.currentTarget.value)} readonly={format !== 'json'} spellcheck="false"></textarea>
-      {:else if schema}
+      {:else if editorSchema}
         <JsonEditor
           value={value}
           onchange={editVisual}
-          {schema}
+          schema={editorSchema}
           height="min(78vh, 920px)"
           class="json-editor"
           editorShowDescriptions={true}
@@ -730,7 +875,8 @@ function addSelectedGhRepo() {
             </button>
           </div>
         </div>
-        {#if previewResult}
+        <p class="muted compact-note" data-testid="preview-status">{!draftValid ? 'Preview unavailable: invalid JSON.' : previewLoading ? 'Updating plan for the current draft…' : previewResult && previewSnapshot === currentSnapshot ? 'Plan matches the current draft.' : 'Plan is out of date; refresh to compare this draft.'}</p>
+        {#if previewResult && previewSnapshot === currentSnapshot}
           <dl class="kv-list compact-stats">
             <div><dt>Total repos</dt><dd>{previewResult.summary.totalRepos}</dd></div>
             <div><dt>Ready</dt><dd>{previewResult.summary.linkableRepos}</dd></div>
@@ -815,6 +961,19 @@ function addSelectedGhRepo() {
           <p class="muted">No workspace plan yet.</p>
         {/if}
       </section>
+
+      <details class="panel disclosure choices-panel">
+        <summary><strong>Provider and category choices</strong></summary>
+        <p class="muted compact-note">Suggestions follow this draft. Custom git hosts and categories stay editable.</p>
+        <label class="field-label"><span>Default provider</span>
+          <input aria-label="Default provider" list="provider-choices" value={defaultText('provider')} oninput={(event) => editDefault('provider', event.currentTarget.value)} disabled={!draftObjectReady || loading || saving || applying} />
+        </label>
+        <datalist id="provider-choices">{#each providerChoices as provider}<option value={String(provider)}></option>{/each}</datalist>
+        <label class="field-label"><span>Default category</span>
+          <input aria-label="Default category" list="category-choices" value={defaultText('category')} oninput={(event) => editDefault('category', event.currentTarget.value)} disabled={!draftObjectReady || loading || saving || applying} />
+        </label>
+        <datalist id="category-choices">{#each categories as category}<option value={category}></option>{/each}</datalist>
+      </details>
 
       <details class="panel disclosure">
         <summary>
