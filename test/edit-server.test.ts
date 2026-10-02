@@ -518,6 +518,39 @@ describe("local editor HTTP boundaries", () => {
     ).toBe(200);
   });
 
+  it("reports a workspace conflict safely and preserves protected files", async () => {
+    const f = await fixture();
+    const repo = createConfig(f.root).repos[0];
+    const draft = { ...f.config, repos: [repo] };
+    const source = path.join(
+      f.config.ghqRoot,
+      repo.provider,
+      repo.owner,
+      repo.name,
+    );
+    const destination = path.join(
+      f.config.workspaceRoot,
+      repo.category,
+      repo.name,
+    );
+    await mkdir(source, { recursive: true });
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, "protected-private-contents");
+    const result = await request(f.origin, "/api/apply", json(draft, "POST"));
+    expect(result.status).toBe(409);
+    expect(result.body.code).toBe("WORKSPACE_SYNC_CONFLICT");
+    expect(result.body.progress).toMatchObject({
+      configSaved: true,
+      completed: ["prepare", "repos"],
+      failedStage: "links",
+    });
+    expect(result.text).not.toContain(f.root);
+    expect(result.text).not.toContain("protected-private-contents");
+    expect(await readFile(destination, "utf8")).toBe(
+      "protected-private-contents",
+    );
+  });
+
   it("never serves assets through a symlink outside the UI directory", async () => {
     const f = await fixture();
     await writeFile(path.join(f.root, "secret.txt"), "asset-secret");
