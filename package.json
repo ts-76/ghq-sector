@@ -1,6 +1,6 @@
 {
   "name": "ghq-sector",
-  "version": "0.1.4",
+  "version": "1.3.0",
   "description": "Node.js CLI for AI-assisted and human-curated ghq workspaces with categorized symlinks, portable config paths, and a local config editor.",
   "license": "MIT",
   "author": "ts-76",
@@ -15,8 +15,8 @@
     "url": "https://github.com/ts-76/ghq-sector/issues"
   },
   "bin": {
-    "gsec": "./dist/cli/main.mjs",
-    "ghq-sector": "./dist/cli/main.mjs"
+    "gsec": "dist/cli/main.mjs",
+    "ghq-sector": "dist/cli/main.mjs"
   },
   "files": [
     "dist",
@@ -34,8 +34,9 @@
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
     "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
     "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin",
-    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate",
-    "release": "semantic-release"
+    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate && bun run audit:publish-cli",
+    "audit:publish-cli": "node .github/publish-cli/node_modules/npm/bin/npm-cli.js audit --prefix .github/publish-cli --audit-level=moderate",
+    "publish:dry-run": "node scripts/publish-dry-run.mjs"
   },
   "keywords": [
     "ghq",
@@ -60,20 +61,15 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.10",
-    "@semantic-release/npm": "^13.2.0",
-    "@semantic-release/release-notes-generator": "^14.1.1",
     "@socketsecurity/bun-security-scanner": "^1.1.3",
     "@types/node": "^24.19.0",
-    "semantic-release": "^25.0.9",
+    "release-please": "17.11.2",
     "tsdown": "^0.21.10",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "ip-address": "^10.7.2",
     "postcss": "^8.5.25"
   }
 }
