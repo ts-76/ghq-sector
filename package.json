@@ -28,7 +28,7 @@
   "scripts": {
     "cli": "tsx src/cli/main.ts",
     "lint": "bunx @biomejs/biome ci .",
-    "test": "vitest run --maxWorkers 1",
+    "test": "vitest run --maxWorkers 1 --exclude \"ui/**\" && bun run --cwd ui test",
     "typecheck": "tsc --noEmit",
     "build-ui": "bun install --cwd ui && bun run --cwd ui build",
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
