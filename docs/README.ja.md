@@ -156,6 +156,10 @@ gsec init --ghq-root ~/ghq --workspace-root ~/workspace/sector --yes
 gsec sync
 ```
 
+Sync は repository と skill のリンク計画全体を、リンク変更前に検査します。`workspaceRoot` 外の宛先、workspace 内の親 symlink、重複・包含関係にあるリンク宛先、実ファイル・実ディレクトリ（空を含む）との衝突を拒否し、保護したパスと理由を表示します。`workspaceRoot` は実ディレクトリを指定してください。root 自体が symlink の場合は、その実体のパスを指定します。
+
+設定された source をすでに指すリンクは、source が存在しない壊れたリンクも含めて保持します。別のリンク先へ更新できるのは、現在のリンク先が `.ghq-sector/repo-links-manifest.json` または `agent-skills-manifest.json` に記録された source と一致する場合だけです。想定外のリンクは変更しません。不要になった skill は、記録された宛先と実際のリンク先が一致する symlink だけを削除し、リンク先の実体や実ファイル・ディレクトリを再帰削除しません。従来のパスだけの skill manifest では管理対象と確認できないため、不要なエントリーは手動確認用に保持します。衝突するエントリーの移動または設定の変更後に Sync / Apply を再実行してください。この保護の対象は管理リンクとその metadata です。設定済み resources のコピーと hooks のコマンド実行は引き続き設定どおりに行います。
+
 ### `gsec apply`
 
 config の完全な状態を反映します。`ghq` 内に不足している repository を揃え、workspace を sync し、config file を workspace root にコピーします。

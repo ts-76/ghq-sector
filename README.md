@@ -170,6 +170,10 @@ Regenerate symlinks, copy configured resources, and regenerate the `.code-worksp
 gsec sync
 ```
 
+Sync checks the entire repository/skill link plan before changing links. It refuses destinations outside `workspaceRoot`, parent symlinks within the workspace, duplicate or overlapping link destinations, and existing real files/directories (including empty directories). Errors identify the protected path and reason. Use an actual directory for `workspaceRoot`; resolve a root symlink to its canonical directory first.
+
+A link already pointing to the configured source is safe to reuse, including a broken link whose source is currently missing. Other links can be replaced only when their current target matches the source recorded in `.ghq-sector/repo-links-manifest.json` or `agent-skills-manifest.json`. Unexpected links remain untouched. Stale skill links are removed only when both their recorded destination and actual target match; targets and real directories/files are never recursively deleted. Old path-only skill manifests cannot prove ownership, so their stale entries are left for manual review. Move a conflicting entry or update the config, then rerun Sync/Apply. This protection applies to managed links and their metadata; configured resources and hooks retain their explicit copy/command behavior.
+
 ### `gsec apply`
 
 Apply the full config state: ensure missing repositories exist in `ghq`, sync the workspace, and copy the config file into the workspace root.

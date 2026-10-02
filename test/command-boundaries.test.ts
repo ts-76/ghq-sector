@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GhqWsConfig } from "../src/config/schema.js";
@@ -138,6 +139,7 @@ describe("init workflow", () => {
 
   it("uses runtime-expanded workspace roots for init filesystem operations", async () => {
     const root = await makeTempRoot();
+    vi.spyOn(os, "homedir").mockReturnValue(root);
     const cwd = path.join(root, "config-home");
     const copyResources = vi.fn(async () => []);
     const generateCodeWorkspace = vi.fn(async () => null);
@@ -164,7 +166,7 @@ describe("init workflow", () => {
       const { runInit } = await importFresh<
         typeof import("../src/commands/init.js")
       >("../src/commands/init.js");
-      const home = process.env.HOME ?? "/home/test-user";
+      const home = root;
 
       await runInit({
         ghqRoot: "~/ghq",
@@ -671,7 +673,7 @@ describe("workspace operations", () => {
 
     await mkdir(sourcePath, { recursive: true });
     await mkdir(path.dirname(stalePath), { recursive: true });
-    await writeFile(stalePath, "stale file", "utf8");
+    await symlink(sourcePath, stalePath);
 
     const { syncWorkspace } = await importFresh<
       typeof import("../src/workspace/sync-workspace.js")
