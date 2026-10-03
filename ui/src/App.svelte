@@ -230,10 +230,10 @@ let persistenceStatus = $derived(
     ? "Read-only YAML"
     : !draftValid
       ? "Invalid JSON"
-      : savedConfigUnconfirmed
-        ? "Saved config needs confirmation"
-        : saving
-          ? "Saving"
+      : saving
+        ? "Saving"
+        : savedConfigUnconfirmed
+          ? "Saved config needs confirmation"
           : unsavedChanges
             ? "Editing (unsaved)"
             : "Saved config",
@@ -257,6 +257,22 @@ let draftObjectReady = $derived(
     typeof value === "object" &&
     !Array.isArray(value),
 );
+let repoChoices = $derived.by(() => {
+  if (!draftObjectReady) return [];
+  const config = getCurrentPayload();
+  if (
+    !config ||
+    typeof config !== "object" ||
+    Array.isArray(config) ||
+    !Array.isArray(config.repos)
+  )
+    return [];
+  return config.repos.flatMap((repo, index) =>
+    repo && typeof repo === "object" && !Array.isArray(repo)
+      ? [{ index, repo }]
+      : [],
+  );
+});
 // A revision identifies an edit; the epoch identifies a loaded file/baseline.
 let draftRevision = 0;
 let loadEpoch = 0;
@@ -762,6 +778,21 @@ function editDefault(field: "provider" | "category", text: string) {
   } as JsonValue);
 }
 
+function editRepoChoice(
+  index: number,
+  field: "provider" | "category",
+  text: string,
+) {
+  if (!draftObjectReady || loading || saving || applying) return;
+  const config = getConfigObject();
+  if (!Array.isArray(config.repos)) return;
+  const repos = [...config.repos];
+  const repo = repos[index];
+  if (!repo || typeof repo !== "object" || Array.isArray(repo)) return;
+  repos[index] = { ...repo, [field]: text };
+  editVisual({ ...config, repos } as JsonValue);
+}
+
 function defaultText(field: "provider" | "category") {
   if (!draftValid) return "";
   const config = getCurrentPayload();
@@ -973,6 +1004,17 @@ function defaultText(field: "provider" | "category") {
           <input aria-label="Default category" list="category-choices" value={defaultText('category')} oninput={(event) => editDefault('category', event.currentTarget.value)} disabled={!draftObjectReady || loading || saving || applying} />
         </label>
         <datalist id="category-choices">{#each categories as category}<option value={category}></option>{/each}</datalist>
+        {#each repoChoices as { index, repo } (index)}
+          <fieldset class="repo-choices">
+            <legend>Repository {index + 1}: {String(repo.owner ?? '')}/{String(repo.name ?? '')}</legend>
+            <label class="field-label"><span>Provider</span>
+              <input aria-label={`Repository ${index + 1} provider`} list="provider-choices" value={typeof repo.provider === 'string' ? repo.provider : ''} oninput={(event) => editRepoChoice(index, 'provider', event.currentTarget.value)} disabled={loading || saving || applying} />
+            </label>
+            <label class="field-label"><span>Category</span>
+              <input aria-label={`Repository ${index + 1} category`} list="category-choices" value={typeof repo.category === 'string' ? repo.category : ''} oninput={(event) => editRepoChoice(index, 'category', event.currentTarget.value)} disabled={loading || saving || applying} />
+            </label>
+          </fieldset>
+        {/each}
       </details>
 
       <details class="panel disclosure">

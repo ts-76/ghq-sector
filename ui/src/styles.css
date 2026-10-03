@@ -696,3 +696,15 @@ summary button {
   padding: 8px 10px;
   gap: 5px;
 }
+
+.repo-choices {
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.repo-choices legend {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

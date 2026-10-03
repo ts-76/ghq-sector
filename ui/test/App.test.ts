@@ -687,6 +687,82 @@ describe("JSON editor presentation", () => {
     ).toBe("Not applied in this session");
   });
 
+  it("shows Saving during a retry of an unconfirmed partial save", async () => {
+    await start();
+    await click("Raw");
+    configHandler = () => response({ message: "unavailable" }, 500);
+    applyHandler = () =>
+      response(
+        {
+          code: "APPLY_FAILED",
+          progress: {
+            configSaved: true,
+            completed: [],
+            failedStage: "sync",
+            failedStageMayHaveChanges: true,
+          },
+        },
+        500,
+      );
+    await click("Apply workspace");
+    const pending = deferred();
+    putHandler = () => pending.promise;
+    await click("Save config");
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saving");
+    pending.resolve({ code: "EDITOR_BUSY" }, 409);
+    await settle();
+    expect(
+      document.querySelector('[data-testid="save-status"]')?.textContent,
+    ).toBe("Saved config needs confirmation");
+  });
+
+  it("offers repository field suggestions while accepting custom values and preserving the draft", async () => {
+    const draft = {
+      ...original,
+      categories: ["work", "tools"],
+      repos: [
+        {
+          provider: "git.custom.example",
+          owner: "alice",
+          name: "repo",
+          category: "work",
+          description: "keep",
+        },
+      ],
+    };
+    serverValue = draft;
+    await start();
+    await click("Raw");
+    expect(
+      document
+        .querySelector('[aria-label="Repository 1 provider"]')
+        ?.getAttribute("list"),
+    ).toBe("provider-choices");
+    expect(
+      document.querySelector(
+        '#provider-choices option[value="git.custom.example"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document
+        .querySelector('[aria-label="Repository 1 category"]')
+        ?.getAttribute("list"),
+    ).toBe("category-choices");
+    await input("Repository 1 provider", "another.private.example");
+    await input("Repository 1 category", "custom-category");
+    expect(JSON.parse(raw()).repos).toEqual([
+      {
+        ...draft.repos[0],
+        provider: "another.private.example",
+        category: "custom-category",
+      },
+    ]);
+    expect(JSON.parse(raw()).defaults).toEqual(original.defaults);
+    expect(serverValue).toEqual(draft);
+  });
+
   it("follows draft choices while accepting custom hosts and categories without losing edits", async () => {
     await start();
     await click("Raw");

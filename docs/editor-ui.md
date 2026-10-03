@@ -10,7 +10,7 @@ Workspace Preview identifies whether it matches the current draft. Editing inval
 
 ## Choices and upstream compatibility
 
-The CLI accepts custom git hosts and category names. These fields have draft-derived schema examples and free-form input suggestions, not a closed enum. The only closed provider enum is `agentSkills.providers`: `agents` and `claude`, matching the CLI validation schema.
+The CLI accepts custom git hosts and category names. These fields have draft-derived schema examples and free-form input suggestions for both defaults and each repository, not a closed enum. The published FormField does not render schema examples, so the companion choices panel supplies native datalists while preserving unrestricted text input. The only closed provider enum is `agentSkills.providers`: `agents` and `claude`, matching the CLI validation schema.
 
 `@visual-json/core` and `@visual-json/svelte` remain on the existing v0.4.0 line. The published Svelte components import `@internal/ui`, which is not a separately published package. The existing Vite alias is therefore retained as a small adapter for the component imports actually used here; the upstream components are not copied or replaced. The adapter's `DIFF_COLORS` now matches the object properties read by the published `DiffView`, and `formatValue` handles the values displayed by that component. The app uses the official `JsonEditor` and `DiffView` exports and their published props.
 
