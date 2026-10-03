@@ -14,10 +14,12 @@ import {
   assertMetadataFile,
   assertSafePath,
   installLink,
+  observedOwnedLinks,
   readLinkManifest,
   removeRecordedLink,
   statIfPresent,
   usesCaseInsensitivePaths,
+  withWorkspaceSyncLease,
   writeLinkManifest,
   writeMetadataFile,
 } from "./safe-links.js";
@@ -90,6 +92,14 @@ export async function syncAgentSkills(
   plan: PlannedAgentSkills,
   prepared?: Awaited<ReturnType<typeof prepareAgentSkillsSync>>,
 ): Promise<SyncAgentSkillsResult> {
+  if (!prepared)
+    return withWorkspaceSyncLease(workspaceRoot, async () =>
+      syncAgentSkills(
+        workspaceRoot,
+        plan,
+        await prepareAgentSkillsSync(workspaceRoot, plan),
+      ),
+    );
   const { reports, manifestPath, previous, stale } =
     prepared ?? (await prepareAgentSkillsSync(workspaceRoot, plan));
   if (!plan.enabled) {
@@ -125,7 +135,11 @@ export async function syncAgentSkills(
     linked.push(skill.destinationPath);
   }
 
-  await writeLinkManifest(workspaceRoot, manifestPath, plan.selected);
+  await writeLinkManifest(
+    workspaceRoot,
+    manifestPath,
+    await observedOwnedLinks(workspaceRoot, plan.selected, previous),
+  );
 
   await writeMetadataFile(
     workspaceRoot,

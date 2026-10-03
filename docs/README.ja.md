@@ -160,6 +160,12 @@ Sync は repository と skill のリンク計画全体を、リンク変更前�
 
 設定された source をすでに指すリンクは、source が存在しない壊れたリンクも含めて保持します。別のリンク先へ更新できるのは、現在のリンク先が `.ghq-sector/repo-links-manifest.json` または `agent-skills-manifest.json` に記録された source と一致する場合だけです。想定外のリンクは変更しません。不要になった skill は、記録された宛先と実際のリンク先が一致する symlink だけを削除し、リンク先の実体や実ファイル・ディレクトリを再帰削除しません。従来のパスだけの skill manifest では管理対象と確認できないため、不要なエントリーは手動確認用に保持します。衝突するエントリーの移動または設定の変更後に Sync / Apply を再実行してください。この保護の対象は管理リンクとその metadata です。設定済み resources のコピーと hooks のコマンド実行は引き続き設定どおりに行います。
 
+設定した repo の source が存在しない場合、既存の管理リンクが実際に指す source を manifest に保持します。存在しない変更予定の source に管理権限を与える記録は作りません。大文字・小文字の区別は workspace のボリューム内に一時ディレクトリを作って検査し、すぐに片付けます。
+
+Sync は `.ghq-sector-sync.lock` ディレクトリで排他制御し、CLI と編集 UI の Sync が同時に進行することを防ぎます。異常終了後に残った場合は、実行中の Sync がないことと内容を確認してから手動で取り除いてください。管理リンクの置換と stale cleanup は、元のエントリーを同じ親ディレクトリ内の非公開な `.ghq-sector-retired-*/entry` へ原子的に移し、その実体を確認したうえで復旧用に保持します。退避ディレクトリは自動削除しません。不要になったら手動で確認・削除してください。symlink のリンク先を再帰的に辿ったり削除したりしないでください。
+
+リンク更新の瞬間に他のアプリが実ファイル・ディレクトリへ差し替えた場合も、移された実体を保持して Sync を中断し、復旧先を表示します。宛先が空いていれば、ファイルは排他的な hardlink、ディレクトリは復旧先への symlink でアクセスを戻します。別のエントリーが新たに作られていれば上書きしません。排他制御の対象は ghq-sector の操作です。外部アプリによる親ディレクトリの変更までは制御できないため、Sync 中は workspace の親ディレクトリを移動しないでください。複数プロセスにまたがるトランザクションや、親ディレクトリを同時に差し替えるプロセスに対する完全な保証は提供しません。
+
 ### `gsec apply`
 
 config の完全な状態を反映します。`ghq` 内に不足している repository を揃え、workspace を sync し、config file を workspace root にコピーします。
@@ -226,7 +232,7 @@ gsec edit --host localhost --port 4173
 - `--port <port>`: editor server の bind port
 - `--no-open`: ブラウザを自動で開かない
 
-editor の bind は `127.0.0.1` / `::1` / `localhost` のみです。`0.0.0.0` などは起動前に拒否します。表示された URL をそのまま開いてください。全 API で Host と同じ Origin を検証します。Origin がないブラウザの same-origin fetch は許可し、それ以外のローカルクライアントには `X-Ghq-Sector-Request: 1` を要求します。読み取りも cross-site request は拒否します。
+editor の bind は `127.0.0.1` / `::1` / `localhost` のみです。`0.0.0.0` などは起動前に拒否します。表示された URL をそのまま開いてください。全 API で Host と同じ Origin を検証します。Origin がないブラウザの same-origin fetch は許可し、それ以外のローカルクライアントには `X-Ghq-Sector-Request: 1` を要求します。読み取りも cross-site request は拒否します。全応答に CSP `frame-ancestors 'none'` と `X-Frame-Options: DENY` を付け、フレーム埋め込みを拒否します。
 
 Save / Preview / Apply / repo ドラフト提案は UTF-8 の `application/json`、最大 1 MiB です。不正 JSON・schema は 400、サイズ超過は 413、Content-Type 不一致は 415 を返します。repo 提案は `{config: currentDraft, repo: optionalRepo}` を受け、ファイル保存せずドラフトを返します。Save / Apply 中は同じ設定への競合 API に 409 busy を返します。設定に隣接する `<config-file>.editor-lock` を排他的に作成し、別プロセス・別ポートの編集サーバー間でも保護します。外部 CLI や手動ファイル編集は含みません。異常終了で残った lease は、記録された PID が停止済みか確認してから、その lease ファイルだけを手動で削除してください。既存 lease を自動削除しません。
 
