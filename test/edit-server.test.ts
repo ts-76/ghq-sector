@@ -10,6 +10,7 @@ import {
 import { request as httpRequest } from "node:http";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { requestRepoProposal } from "../ui/src/repo-proposal.js";
 import { createConfig, makeTempRoot } from "./helpers.js";
 
 const servers: { stop(): void }[] = [];
@@ -72,6 +73,7 @@ function request(
   return new Promise<{
     status: number;
     text: string;
+    headers: Record<string, string | string[] | undefined>;
     body: Record<string, unknown>;
   }>((resolve, reject) => {
     const req = httpRequest(
@@ -96,7 +98,12 @@ function request(
           } catch {
             /* static asset */
           }
-          resolve({ status: response.statusCode ?? 0, text, body });
+          resolve({
+            status: response.statusCode ?? 0,
+            text,
+            headers: response.headers,
+            body,
+          });
         });
       },
     );
@@ -152,6 +159,55 @@ describe("local editor HTTP boundaries", () => {
     expect(
       await readFile(path.join(f.config.workspaceRoot, "AGENTS.md"), "utf8"),
     ).toContain("ghq-sector");
+  });
+
+  it("prevents UI framing on assets and API success/error responses", async () => {
+    const f = await fixture();
+    for (const [route, options] of [
+      ["/", {}],
+      ["/api/config", {}],
+      ["/api/config", { headers: { Host: "foreign.test" } }],
+    ] as const) {
+      const result = await request(f.origin, route, options);
+      expect(result.headers["content-security-policy"]).toBe(
+        "frame-ancestors 'none'",
+      );
+      expect(result.headers["x-frame-options"]).toBe("DENY");
+    }
+  });
+
+  it.each([
+    "template",
+    "selected GitHub repo",
+  ])("uses the bundled UI proposal contract for %s without saving the draft", async (action) => {
+    const f = await fixture();
+    const draft = {
+      ...f.config,
+      categories: ["unsaved"],
+      defaults: { category: "unsaved", owner: "draft-owner" },
+    };
+    const repo = {
+      provider: "github.com",
+      owner: "draft-owner",
+      name: action === "template" ? "" : "chosen",
+      category: "unsaved",
+    };
+    const send: typeof fetch = (input, init) =>
+      fetch(new URL(String(input), f.origin), {
+        ...init,
+        headers: { ...init?.headers, Origin: f.origin },
+      });
+    const nextDraft = await requestRepoProposal(
+      draft,
+      action === "template" ? undefined : repo,
+      send,
+    );
+    expect(nextDraft).toMatchObject({ categories: ["unsaved"], repos: [repo] });
+    expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(f.config);
+    expect(
+      (await request(f.origin, "/api/config", json(nextDraft))).status,
+    ).toBe(200);
+    expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(nextDraft);
   });
 
   it("rejects public binds before loading config or building UI", async () => {
