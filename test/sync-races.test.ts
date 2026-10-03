@@ -75,53 +75,53 @@ describe("ownership manifest consistency", () => {
 });
 
 describe("case detection on the workspace volume", () => {
-  it.each([
-    false,
-    true,
-  ])("probes a child on the target volume (caseInsensitive=%s), not its parent", async (caseInsensitive) => {
-    const root = await makeTempRoot();
-    const workspace = path.join(root, "mounted-workspace");
-    await mkdir(workspace);
-    let probe = "";
-    const requests: string[] = [];
-    vi.doMock("node:fs/promises", async () => {
-      const actual =
-        await vi.importActual<typeof import("node:fs/promises")>(
-          "node:fs/promises",
-        );
-      return {
-        ...actual,
-        mkdtemp: vi.fn(async (prefix: string) => {
-          expect(path.dirname(prefix)).toBe(workspace);
-          probe = await actual.mkdtemp(prefix);
-          return probe;
-        }),
-        lstat: vi.fn(async (filename: string) => {
-          requests.push(filename);
-          if (
-            probe &&
-            filename ===
-              path.join(workspace, path.basename(probe).toUpperCase())
-          ) {
-            if (caseInsensitive) return actual.lstat(probe);
-            throw Object.assign(new Error("not found"), { code: "ENOENT" });
-          }
-          return actual.lstat(filename);
-        }),
-      };
-    });
-    const { usesCaseInsensitivePaths } = await importFresh<
-      typeof import("../src/workspace/safe-links.js")
-    >("../src/workspace/safe-links.js");
-    expect(await usesCaseInsensitivePaths(workspace)).toBe(caseInsensitive);
-    expect(probe).not.toBe("");
-    expect(
-      requests.every(
-        (entry) => entry === workspace || path.dirname(entry) === workspace,
-      ),
-    ).toBe(true);
-    expect(await readdir(workspace)).toEqual([]);
-  });
+  it.each([false, true])(
+    "probes a child on the target volume (caseInsensitive=%s), not its parent",
+    async (caseInsensitive) => {
+      const root = await makeTempRoot();
+      const workspace = path.join(root, "mounted-workspace");
+      await mkdir(workspace);
+      let probe = "";
+      const requests: string[] = [];
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises",
+          );
+        return {
+          ...actual,
+          mkdtemp: vi.fn(async (prefix: string) => {
+            expect(path.dirname(prefix)).toBe(workspace);
+            probe = await actual.mkdtemp(prefix);
+            return probe;
+          }),
+          lstat: vi.fn(async (filename: string) => {
+            requests.push(filename);
+            if (
+              probe &&
+              filename ===
+                path.join(workspace, path.basename(probe).toUpperCase())
+            ) {
+              if (caseInsensitive) return actual.lstat(probe);
+              throw Object.assign(new Error("not found"), { code: "ENOENT" });
+            }
+            return actual.lstat(filename);
+          }),
+        };
+      });
+      const { usesCaseInsensitivePaths } = await importFresh<
+        typeof import("../src/workspace/safe-links.js")
+      >("../src/workspace/safe-links.js");
+      expect(await usesCaseInsensitivePaths(workspace)).toBe(caseInsensitive);
+      expect(probe).not.toBe("");
+      expect(
+        requests.every(
+          (entry) => entry === workspace || path.dirname(entry) === workspace,
+        ),
+      ).toBe(true);
+      expect(await readdir(workspace)).toEqual([]);
+    },
+  );
 
   it("cleans the probe when inspection fails", async () => {
     const root = await makeTempRoot();
@@ -150,54 +150,54 @@ describe("case detection on the workspace volume", () => {
 });
 
 describe("entry replacement races", () => {
-  it.each([
-    "update",
-    "manifest",
-  ])("does not trust a symlink target swapped during %s validation", async (operation) => {
-    const { root, config, sourcePath, destinationPath } = await fixture();
-    const nextSource = path.join(root, "next-source");
-    const foreignSource = path.join(root, "foreign-source");
-    await mkdir(nextSource);
-    await mkdir(foreignSource);
-    let reads = 0;
-    vi.doMock("node:fs/promises", async () => {
-      const actual =
-        await vi.importActual<typeof import("node:fs/promises")>(
-          "node:fs/promises",
-        );
-      return {
-        ...actual,
-        readlink: vi.fn(async (filename: string) => {
-          if (
-            filename === destinationPath &&
-            ++reads === (operation === "update" ? 3 : 2)
-          ) {
-            await actual.unlink(destinationPath);
-            await actual.symlink(foreignSource, destinationPath);
-          }
-          return actual.readlink(filename);
-        }),
-      };
-    });
-    const { installLink, observedOwnedLinks } = await importFresh<
-      typeof import("../src/workspace/safe-links.js")
-    >("../src/workspace/safe-links.js");
-    const desired = { sourcePath: nextSource, destinationPath };
-    const previous = [{ sourcePath, destinationPath }];
-    const result =
-      operation === "update"
-        ? installLink(config.workspaceRoot, desired, previous)
-        : observedOwnedLinks(config.workspaceRoot, [desired], previous);
-    await expect(result).rejects.toThrow(
-      "unexpected symlink target is preserved",
-    );
-    expect(await readlink(destinationPath)).toBe(foreignSource);
-    expect(
-      (await readdir(path.dirname(destinationPath))).some((name) =>
-        name.startsWith(".ghq-sector-retired-"),
-      ),
-    ).toBe(false);
-  });
+  it.each(["update", "manifest"])(
+    "does not trust a symlink target swapped during %s validation",
+    async (operation) => {
+      const { root, config, sourcePath, destinationPath } = await fixture();
+      const nextSource = path.join(root, "next-source");
+      const foreignSource = path.join(root, "foreign-source");
+      await mkdir(nextSource);
+      await mkdir(foreignSource);
+      let reads = 0;
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises",
+          );
+        return {
+          ...actual,
+          readlink: vi.fn(async (filename: string) => {
+            if (
+              filename === destinationPath &&
+              ++reads === (operation === "update" ? 3 : 2)
+            ) {
+              await actual.unlink(destinationPath);
+              await actual.symlink(foreignSource, destinationPath);
+            }
+            return actual.readlink(filename);
+          }),
+        };
+      });
+      const { installLink, observedOwnedLinks } = await importFresh<
+        typeof import("../src/workspace/safe-links.js")
+      >("../src/workspace/safe-links.js");
+      const desired = { sourcePath: nextSource, destinationPath };
+      const previous = [{ sourcePath, destinationPath }];
+      const result =
+        operation === "update"
+          ? installLink(config.workspaceRoot, desired, previous)
+          : observedOwnedLinks(config.workspaceRoot, [desired], previous);
+      await expect(result).rejects.toThrow(
+        "unexpected symlink target is preserved",
+      );
+      expect(await readlink(destinationPath)).toBe(foreignSource);
+      expect(
+        (await readdir(path.dirname(destinationPath))).some((name) =>
+          name.startsWith(".ghq-sector-retired-"),
+        ),
+      ).toBe(false);
+    },
+  );
   it.each([
     "update file",
     "update directory",
