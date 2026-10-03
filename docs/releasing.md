@@ -22,6 +22,13 @@ PRs created with this token. Before merging a release PR, run **CI** and **Secur
 using their workflow_dispatch controls, selecting the release PR branch, and
 review the resulting checks. Do not add a personal token just to trigger CI.
 The release workflow also verifies the merged main commit before creating a tag.
+Release candidates are built once and must match that workflow's GITHUB_SHA and
+checked-out package version before any creation. A queued older run cannot tag
+newer main. Release creation uses that exact candidate through the public GitHub
+API. Existing tags are never moved. If creation succeeds but a follow-up comment
+or label fails, the verified release outputs survive; retry can recover a tag
+and release only when both resolve to that same verified SHA. With no candidate,
+no mutating API is called.
 
 The publish job retains the existing id-token permission and the `release.yml`
 filename for npm trusted publishing. It creates no npm tokens and changes no
@@ -58,11 +65,12 @@ UI assets, disables credential/OIDC access, and calls the exact pinned CLI with
 1.3.0 baseline without a registry version collision. It does not publish or
 execute lifecycle scripts; the package has no required publish lifecycle scripts.
 
-## Current upstream blocker (2026-10-02)
+## Current upstream blocker (2026-10-03)
 
 Application and UI audits are clean after the dependency refresh. The pinned npm
 11.20.0 CLI still bundles brace-expansion 5.0.9, ip-address 10.5.0, and undici
-6.28.0. npm audit reports two high and one moderate vulnerable packages. The
+6.28.0. The three direct vulnerable bundles remain. The current npm audit also counts
+related dependent packages, reporting 24 affected entries (23 high, one moderate). The
 checked npm 11.21.0 and 12.2.0 tarballs contain the same affected copies. Consumer
 overrides and npm audit fix do not replace these bundled dependencies.
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { GitHub, Manifest } from "release-please";
+import { executeVerifiedRelease } from "./release-execution.mjs";
 
 const mode = process.argv[2] || "preview";
 assert.ok(["preview", "pr", "release"].includes(mode), "Unknown release mode");
@@ -32,9 +33,13 @@ if (mode === "preview") {
 } else if (mode === "pr") {
   await manifest.createPullRequests();
 } else {
-  const releases = (await manifest.createReleases()).filter(Boolean);
-  assert.ok(releases.length <= 1, "Expected a single root package release");
-  const release = releases[0];
+  const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+  const release = await executeVerifiedRelease({
+    github,
+    manifest,
+    verifiedSha: process.env.GITHUB_SHA,
+    version: packageJson.version,
+  });
   const outputs = [`release_created=${Boolean(release)}`];
   if (release) {
     assert.equal(release.path, ".");
