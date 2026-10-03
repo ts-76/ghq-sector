@@ -1,10 +1,28 @@
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import path from "node:path";
+import { warn } from "../shared/logger.js";
 import type {
   AgentSkillProvider,
   DiscoveredAgentSkill,
   PlannedAgentSkills,
 } from "./agent-skills.js";
+import {
+  assertDirectory,
+  assertDistinctLinks,
+  assertLink,
+  assertLinkDirectories,
+  assertMetadataFile,
+  assertSafePath,
+  installLink,
+  observedOwnedLinks,
+  readLinkManifest,
+  removeRecordedLink,
+  statIfPresent,
+  usesCaseInsensitivePaths,
+  withWorkspaceSyncLease,
+  writeLinkManifest,
+  writeMetadataFile,
+} from "./safe-links.js";
 
 export interface SyncAgentSkillsResult {
   linked: string[];
@@ -22,28 +40,73 @@ export interface SyncAgentSkillsResult {
   };
 }
 
-export async function syncAgentSkills(
+export async function prepareAgentSkillsSync(
   workspaceRoot: string,
   plan: PlannedAgentSkills,
-): Promise<SyncAgentSkillsResult> {
+) {
   const reports = {
     json: path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.json"),
     markdown: path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.md"),
   };
+  const manifestPath = path.join(
+    workspaceRoot,
+    ".ghq-sector",
+    "agent-skills-manifest.json",
+  );
+  await assertDirectory(workspaceRoot, workspaceRoot);
+  for (const filename of [manifestPath, reports.json, reports.markdown]) {
+    await assertMetadataFile(workspaceRoot, filename);
+  }
+  const previous = await readLinkManifest(manifestPath);
+  const links = plan.enabled ? plan.selected : [];
+  const caseInsensitive = await usesCaseInsensitivePaths(workspaceRoot);
+  assertDistinctLinks(links, caseInsensitive);
+  assertLinkDirectories(
+    links,
+    [
+      path.dirname(manifestPath),
+      ...links.map((link) => path.dirname(link.destinationPath)),
+    ],
+    caseInsensitive,
+  );
+  for (const skill of links) await assertLink(workspaceRoot, skill, previous);
+  const desired = new Set(
+    links.map((link) => path.resolve(link.destinationPath)),
+  );
+  const stale = plan.enabled
+    ? previous.filter(
+        (link) =>
+          !desired.has(path.resolve(link.destinationPath)) &&
+          isManagedSkillPath(workspaceRoot, link.destinationPath),
+      )
+    : [];
+  // Validate stale parents before changing any current link. A manifest never
+  // authorizes traversal through a symlink parent, or deletion of a real entry.
+  for (const link of stale)
+    await assertSafePath(workspaceRoot, link.destinationPath);
+  return { reports, manifestPath, previous, stale };
+}
 
+export async function syncAgentSkills(
+  workspaceRoot: string,
+  plan: PlannedAgentSkills,
+  prepared?: Awaited<ReturnType<typeof prepareAgentSkillsSync>>,
+): Promise<SyncAgentSkillsResult> {
+  if (!prepared)
+    return withWorkspaceSyncLease(workspaceRoot, async () =>
+      syncAgentSkills(
+        workspaceRoot,
+        plan,
+        await prepareAgentSkillsSync(workspaceRoot, plan),
+      ),
+    );
+  const { reports, manifestPath, previous, stale } =
+    prepared ?? (await prepareAgentSkillsSync(workspaceRoot, plan));
   if (!plan.enabled) {
-    await rm(
-      path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.json"),
-      {
-        force: true,
-      },
-    );
-    await rm(
-      path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.md"),
-      {
-        force: true,
-      },
-    );
+    for (const filename of [reports.json, reports.markdown]) {
+      await assertMetadataFile(workspaceRoot, filename);
+      if (await statIfPresent(filename)) await unlink(filename);
+    }
     return {
       linked: [],
       removed: [],
@@ -53,55 +116,40 @@ export async function syncAgentSkills(
         removedCount: 0,
         duplicateCount: 0,
         warningCount: 0,
-        byProvider: {
-          agents: { linkedCount: 0 },
-          claude: { linkedCount: 0 },
-        },
+        byProvider: { agents: { linkedCount: 0 }, claude: { linkedCount: 0 } },
       },
     };
   }
-
-  const desired = new Set(plan.selected.map((skill) => skill.destinationPath));
-  const manifestPath = path.join(
-    workspaceRoot,
-    ".ghq-sector",
-    "agent-skills-manifest.json",
-  );
-  const previous = await readPreviousManifest(manifestPath);
   const removed: string[] = [];
-
-  for (const previousPath of previous) {
-    if (desired.has(previousPath)) {
-      continue;
-    }
-    if (!isManagedSkillPath(workspaceRoot, previousPath)) {
-      continue;
-    }
-    await rm(previousPath, { force: true, recursive: true });
-    removed.push(previousPath);
+  for (const link of stale) {
+    if (await removeRecordedLink(workspaceRoot, link))
+      removed.push(link.destinationPath);
+    else if (await statIfPresent(link.destinationPath))
+      warn(
+        `preserve stale skill: ${link.destinationPath} (not a matching recorded symlink)`,
+      );
   }
-
   const linked: string[] = [];
   for (const skill of plan.selected) {
-    await ensureParentTree(skill.destinationPath);
-    await rm(skill.destinationPath, { force: true, recursive: true });
-    await symlink(skill.sourcePath, skill.destinationPath, "dir");
+    await installLink(workspaceRoot, skill, previous);
     linked.push(skill.destinationPath);
   }
 
-  await mkdir(path.dirname(manifestPath), { recursive: true });
-  await writeManifest(manifestPath, linked);
+  await writeLinkManifest(
+    workspaceRoot,
+    manifestPath,
+    await observedOwnedLinks(workspaceRoot, plan.selected, previous),
+  );
 
-  await mkdir(path.dirname(reports.json), { recursive: true });
-  await writeFile(
+  await writeMetadataFile(
+    workspaceRoot,
     reports.json,
     `${JSON.stringify(toJsonReport(workspaceRoot, plan), null, 2)}\n`,
-    "utf8",
   );
-  await writeFile(
+  await writeMetadataFile(
+    workspaceRoot,
     reports.markdown,
     toMarkdownReport(workspaceRoot, plan),
-    "utf8",
   );
 
   return {
@@ -129,41 +177,19 @@ export async function syncAgentSkills(
   };
 }
 
-async function readPreviousManifest(manifestPath: string): Promise<string[]> {
-  try {
-    const raw = await readFile(manifestPath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item: unknown) => typeof item === "string");
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 function isManagedSkillPath(workspaceRoot: string, entryPath: string): boolean {
-  const normalized = path.resolve(entryPath);
-  const root = path.resolve(workspaceRoot);
-  if (!normalized.startsWith(root)) {
-    return false;
-  }
-  const relative = normalized.slice(root.length);
-  return (
-    relative.startsWith(`${path.sep}.agents${path.sep}skills${path.sep}`) ||
-    relative.startsWith(`${path.sep}.claude${path.sep}skills${path.sep}`)
+  const relative = path.relative(
+    path.resolve(workspaceRoot),
+    path.resolve(entryPath),
   );
-}
-
-async function writeManifest(
-  manifestPath: string,
-  linked: string[],
-): Promise<void> {
-  await writeFile(manifestPath, `${JSON.stringify(linked, null, 2)}\n`, "utf8");
-}
-
-async function ensureParentTree(destinationPath: string) {
-  await mkdir(path.dirname(destinationPath), { recursive: true });
+  return [".agents", ".claude"].some((provider) => {
+    const prefix = `${provider}${path.sep}skills${path.sep}`;
+    return (
+      relative.startsWith(prefix) &&
+      relative.slice(prefix.length).split(path.sep).length === 1 &&
+      relative.slice(prefix.length) !== ""
+    );
+  });
 }
 
 function toJsonReport(workspaceRoot: string, plan: PlannedAgentSkills) {

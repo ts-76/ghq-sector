@@ -170,6 +170,16 @@ Regenerate symlinks, copy configured resources, and regenerate the `.code-worksp
 gsec sync
 ```
 
+Sync checks the entire repository/skill link plan before changing links. It refuses destinations outside `workspaceRoot`, parent symlinks within the workspace, duplicate or overlapping link destinations, and existing real files/directories (including empty directories). Errors identify the protected path and reason. Use an actual directory for `workspaceRoot`; resolve a root symlink to its canonical directory first.
+
+A link already pointing to the configured source is safe to reuse, including a broken link whose source is currently missing. Other links can be replaced only when their current target matches the source recorded in `.ghq-sector/repo-links-manifest.json` or `agent-skills-manifest.json`. Unexpected links remain untouched. Stale skill links are removed only when both their recorded destination and actual target match; targets and real directories/files are never recursively deleted. Old path-only skill manifests cannot prove ownership, so their stale entries are left for manual review. Move a conflicting entry or update the config, then rerun Sync/Apply. This protection applies to managed links and their metadata; configured resources and hooks retain their explicit copy/command behavior.
+
+When a configured repo source is missing, the ownership manifest keeps the observed managed target of any existing link; it does not grant ownership to the missing desired source. Case behavior is probed inside the workspace's volume using a temporary directory that is immediately removed.
+
+Sync acquires an exclusive `.ghq-sector-sync.lock` directory so managed repository/skill-link synchronization from CLI/editor operations cannot overlap. Resource copies, generated `.code-workspace` and `AGENTS.md` updates run outside this lease. A crashed operation may leave this lease; inspect it and ensure no sync is running before manually removing it. Managed link replacement and stale cleanup atomically move the old entry into a private `.ghq-sector-retired-*/entry` directory beside its original location, inspect the moved entry, and retain it as recovery data. These recovery directories are not automatically deleted. Review and remove them manually when no longer needed; do not recursively follow their symlinks or delete their targets. A retained relative symlink keeps its original text: restore it to its original parent directory before using it, since it may resolve differently inside the recovery directory.
+
+If another application swaps in a real file/directory at the instant of a link update, Sync preserves the moved entry, stops, and reports its recovery path. It restores file access with an exclusive hardlink or directory access with a recovery symlink when the destination is still free; an entry newly created at the destination is left untouched. The lease coordinates ghq-sector managed-link synchronization, not arbitrary filesystem writers. Keep external writers from renaming workspace parent directories during Sync; this is not a cross-process transaction or a guarantee against a process replacing ancestor directories concurrently.
+
 ### `gsec apply`
 
 Apply the full config state: ensure missing repositories exist in `ghq`, sync the workspace, and copy the config file into the workspace root.

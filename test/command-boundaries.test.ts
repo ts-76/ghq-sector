@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -673,7 +673,7 @@ describe("workspace operations", () => {
 
     await mkdir(sourcePath, { recursive: true });
     await mkdir(path.dirname(stalePath), { recursive: true });
-    await writeFile(stalePath, "stale file", "utf8");
+    await symlink(sourcePath, stalePath);
 
     const { syncWorkspace } = await importFresh<
       typeof import("../src/workspace/sync-workspace.js")
