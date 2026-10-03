@@ -45,42 +45,41 @@ describe("workspace destination protection", () => {
     );
     expect(await lstat(destination).catch(() => null)).toBeNull();
   });
-  it.each([
-    "file",
-    "empty directory",
-    "nonempty directory",
-  ])("preserves an existing %s and rejects the entire plan", async (kind) => {
-    const { root, config, destination } = await fixture();
-    if (kind === "file") await writeFile(destination, "user contents");
-    else {
-      await mkdir(destination);
-      if (kind === "nonempty directory")
-        await writeFile(path.join(destination, "keep.txt"), "user contents");
-    }
-    config.repos.unshift({
-      provider: "github.com",
-      owner: "ts-76",
-      name: "other",
-      category: "projects",
-    });
-    await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "other"));
-    await expect(syncWorkspace(config)).rejects.toThrow(
-      `${destination}: existing ${kind === "file" ? "file" : "directory"} is preserved`,
-    );
-    expect(
-      await lstat(path.join(config.workspaceRoot, "projects", "other")).catch(
-        () => null,
-      ),
-    ).toBeNull();
-    if (kind !== "empty directory")
+  it.each(["file", "empty directory", "nonempty directory"])(
+    "preserves an existing %s and rejects the entire plan",
+    async (kind) => {
+      const { root, config, destination } = await fixture();
+      if (kind === "file") await writeFile(destination, "user contents");
+      else {
+        await mkdir(destination);
+        if (kind === "nonempty directory")
+          await writeFile(path.join(destination, "keep.txt"), "user contents");
+      }
+      config.repos.unshift({
+        provider: "github.com",
+        owner: "ts-76",
+        name: "other",
+        category: "projects",
+      });
+      await mkdir(path.join(config.ghqRoot, "github.com", "ts-76", "other"));
+      await expect(syncWorkspace(config)).rejects.toThrow(
+        `${destination}: existing ${kind === "file" ? "file" : "directory"} is preserved`,
+      );
       expect(
-        await readFile(
-          kind === "file" ? destination : path.join(destination, "keep.txt"),
-          "utf8",
+        await lstat(path.join(config.workspaceRoot, "projects", "other")).catch(
+          () => null,
         ),
-      ).toBe("user contents");
-    expect((await lstat(root)).isDirectory()).toBe(true);
-  });
+      ).toBeNull();
+      if (kind !== "empty directory")
+        expect(
+          await readFile(
+            kind === "file" ? destination : path.join(destination, "keep.txt"),
+            "utf8",
+          ),
+        ).toBe("user contents");
+      expect((await lstat(root)).isDirectory()).toBe(true);
+    },
+  );
 
   it("keeps expected links, recreates removed links, updates recorded links, and preserves their targets", async () => {
     const { config, source, destination } = await fixture();
@@ -118,48 +117,46 @@ describe("workspace destination protection", () => {
     expect(await readlink(destination)).toBe(source);
   });
 
-  it.each([
-    false,
-    true,
-  ])("preserves an unexpected symlink (broken=%s)", async (broken) => {
-    const { root, config, destination } = await fixture();
-    const other = path.join(root, "other");
-    if (!broken) await mkdir(other);
-    await symlink(other, destination);
-    await expect(syncWorkspace(config)).rejects.toThrow(
-      "unexpected symlink target is preserved",
-    );
-    expect(await readlink(destination)).toBe(other);
-  });
+  it.each([false, true])(
+    "preserves an unexpected symlink (broken=%s)",
+    async (broken) => {
+      const { root, config, destination } = await fixture();
+      const other = path.join(root, "other");
+      if (!broken) await mkdir(other);
+      await symlink(other, destination);
+      await expect(syncWorkspace(config)).rejects.toThrow(
+        "unexpected symlink target is preserved",
+      );
+      expect(await readlink(destination)).toBe(other);
+    },
+  );
 
-  it.each([
-    "escape",
-    "duplicate",
-    "parent link",
-    "overlap",
-  ])("rejects %s before creating another link", async (kind) => {
-    const { root, config, destination } = await fixture();
-    const original = config.repos[0];
-    if (!original) throw new Error("expected fixture repo");
-    const repo = { ...original };
-    if (kind === "escape") repo.category = "../../outside";
-    if (kind === "duplicate") repo.owner = "another";
-    if (kind === "overlap") repo.name = "life/nested";
-    if (kind === "parent link") {
-      repo.category = "alias";
-      const outside = path.join(root, "outside");
-      await mkdir(outside);
-      await symlink(outside, path.join(config.workspaceRoot, "alias"));
-    }
-    config.repos.push(repo);
-    await expect(syncWorkspace(config)).rejects.toThrow(
-      /inside workspace root|duplicate or overlapping|symlink parent/,
-    );
-    expect(await lstat(destination).catch(() => null)).toBeNull();
-    expect(
-      await lstat(path.join(root, "outside", "life")).catch(() => null),
-    ).toBeNull();
-  });
+  it.each(["escape", "duplicate", "parent link", "overlap"])(
+    "rejects %s before creating another link",
+    async (kind) => {
+      const { root, config, destination } = await fixture();
+      const original = config.repos[0];
+      if (!original) throw new Error("expected fixture repo");
+      const repo = { ...original };
+      if (kind === "escape") repo.category = "../../outside";
+      if (kind === "duplicate") repo.owner = "another";
+      if (kind === "overlap") repo.name = "life/nested";
+      if (kind === "parent link") {
+        repo.category = "alias";
+        const outside = path.join(root, "outside");
+        await mkdir(outside);
+        await symlink(outside, path.join(config.workspaceRoot, "alias"));
+      }
+      config.repos.push(repo);
+      await expect(syncWorkspace(config)).rejects.toThrow(
+        /inside workspace root|duplicate or overlapping|symlink parent/,
+      );
+      expect(await lstat(destination).catch(() => null)).toBeNull();
+      expect(
+        await lstat(path.join(root, "outside", "life")).catch(() => null),
+      ).toBeNull();
+    },
+  );
 });
 
 async function skillsFixture() {
@@ -270,25 +267,24 @@ describe("skill destination protection", () => {
     expect(await lstat(destination).catch(() => null)).toBeNull();
   });
 
-  it.each([
-    "file",
-    "directory",
-    "unexpected link",
-  ])("preserves a selected skill %s and prevents repo changes", async (kind) => {
-    const { root, config, sourcePath, destinationPath, destination } =
-      await skillsFixture();
-    if (kind === "file") await writeFile(destinationPath, "user contents");
-    if (kind === "directory") await mkdir(destinationPath);
-    if (kind === "unexpected link")
-      await symlink(path.join(root, "missing"), destinationPath);
-    await expect(syncWorkspace(config)).rejects.toThrow(
-      /existing|unexpected symlink/,
-    );
-    expect(await lstat(destination).catch(() => null)).toBeNull();
-    expect(await readFile(path.join(sourcePath, "SKILL.md"), "utf8")).toContain(
-      "Keep source",
-    );
-  });
+  it.each(["file", "directory", "unexpected link"])(
+    "preserves a selected skill %s and prevents repo changes",
+    async (kind) => {
+      const { root, config, sourcePath, destinationPath, destination } =
+        await skillsFixture();
+      if (kind === "file") await writeFile(destinationPath, "user contents");
+      if (kind === "directory") await mkdir(destinationPath);
+      if (kind === "unexpected link")
+        await symlink(path.join(root, "missing"), destinationPath);
+      await expect(syncWorkspace(config)).rejects.toThrow(
+        /existing|unexpected symlink/,
+      );
+      expect(await lstat(destination).catch(() => null)).toBeNull();
+      expect(
+        await readFile(path.join(sourcePath, "SKILL.md"), "utf8"),
+      ).toContain("Keep source");
+    },
+  );
 
   it("updates recorded skills and removes only stale links whose recorded targets still match", async () => {
     const { config, plan, sourcePath, destinationPath, root } =
@@ -312,45 +308,45 @@ describe("skill destination protection", () => {
     expect((await lstat(nextSource)).isDirectory()).toBe(true);
   });
 
-  it.each([
-    "legacy",
-    "file",
-    "directory",
-    "different target",
-    "outside",
-  ])("does not delete stale %s entries based on a manifest alone", async (kind) => {
-    const { config, plan, sourcePath, destinationPath, root } =
-      await skillsFixture();
-    const manifest = path.join(
-      config.workspaceRoot,
-      ".ghq-sector",
-      "agent-skills-manifest.json",
-    );
-    await mkdir(path.dirname(manifest));
-    const stalePath =
-      kind === "outside" ? path.join(root, "outside.txt") : destinationPath;
-    if (kind === "file" || kind === "outside")
-      await writeFile(stalePath, "user contents");
-    else if (kind === "directory") await mkdir(stalePath);
-    else
-      await symlink(
-        kind === "different target" ? path.join(root, "missing") : sourcePath,
-        stalePath,
+  it.each(["legacy", "file", "directory", "different target", "outside"])(
+    "does not delete stale %s entries based on a manifest alone",
+    async (kind) => {
+      const { config, plan, sourcePath, destinationPath, root } =
+        await skillsFixture();
+      const manifest = path.join(
+        config.workspaceRoot,
+        ".ghq-sector",
+        "agent-skills-manifest.json",
       );
-    await writeFile(
-      manifest,
-      JSON.stringify(
-        kind === "legacy"
-          ? [stalePath]
-          : { version: 1, links: [{ destinationPath: stalePath, sourcePath }] },
-      ),
-    );
-    expect(
-      (await syncAgentSkills(config.workspaceRoot, { ...plan, selected: [] }))
-        .removed,
-    ).toEqual([]);
-    expect(await lstat(stalePath)).toBeTruthy();
-  });
+      await mkdir(path.dirname(manifest));
+      const stalePath =
+        kind === "outside" ? path.join(root, "outside.txt") : destinationPath;
+      if (kind === "file" || kind === "outside")
+        await writeFile(stalePath, "user contents");
+      else if (kind === "directory") await mkdir(stalePath);
+      else
+        await symlink(
+          kind === "different target" ? path.join(root, "missing") : sourcePath,
+          stalePath,
+        );
+      await writeFile(
+        manifest,
+        JSON.stringify(
+          kind === "legacy"
+            ? [stalePath]
+            : {
+                version: 1,
+                links: [{ destinationPath: stalePath, sourcePath }],
+              },
+        ),
+      );
+      expect(
+        (await syncAgentSkills(config.workspaceRoot, { ...plan, selected: [] }))
+          .removed,
+      ).toEqual([]);
+      expect(await lstat(stalePath)).toBeTruthy();
+    },
+  );
 
   it("refuses stale and report paths under a parent symlink without changing outside files", async () => {
     const { config, plan, sourcePath, destinationPath, root } =
@@ -386,50 +382,50 @@ describe("skill destination protection", () => {
 });
 
 describe("isolated CLI sync/apply", () => {
-  it.each([
-    "sync",
-    "apply",
-  ])("%s preserves collisions and succeeds safely after the user moves them", async (command) => {
-    const { root, config, destination, source } = await fixture();
-    await writeFile(
-      path.join(root, "ghq-sector.config.json"),
-      JSON.stringify(config),
-    );
-    // Stub ghq root within the fixture so machine discovery cannot select user repos.
-    const bin = path.join(root, "bin");
-    await mkdir(bin);
-    await writeFile(
-      path.join(bin, "ghq"),
-      `#!/bin/sh\nif [ "$1" = root ]; then printf '%s\\n' '${config.ghqRoot}'; else exit 99; fi\n`,
-      { mode: 0o755 },
-    );
-    const cliPath = path.resolve("src/cli/main.ts");
-    const tsxPath = path.resolve("node_modules/tsx/dist/loader.mjs");
-    const invoke = () =>
-      spawnSync(process.execPath, ["--import", tsxPath, cliPath, command], {
-        cwd: root,
-        env: {
-          ...process.env,
-          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-        },
-        encoding: "utf8",
-      });
-    await writeFile(destination, "user contents");
-    const failed = invoke();
-    expect(failed.status).not.toBe(0);
-    expect(failed.stderr).toContain(
-      `${destination}: existing file is preserved`,
-    );
-    expect(await readFile(destination, "utf8")).toBe("user contents");
-    await rm(destination);
-    for (let count = 0; count < 2; count++) {
-      const result = invoke();
-      expect(result.stderr).toBe("");
-      expect(result.status).toBe(0);
-      expect(await readlink(destination)).toBe(source);
-    }
-    expect(await readFile(path.join(source, "keep.txt"), "utf8")).toBe(
-      "source contents",
-    );
-  });
+  it.each(["sync", "apply"])(
+    "%s preserves collisions and succeeds safely after the user moves them",
+    async (command) => {
+      const { root, config, destination, source } = await fixture();
+      await writeFile(
+        path.join(root, "ghq-sector.config.json"),
+        JSON.stringify(config),
+      );
+      // Stub ghq root within the fixture so machine discovery cannot select user repos.
+      const bin = path.join(root, "bin");
+      await mkdir(bin);
+      await writeFile(
+        path.join(bin, "ghq"),
+        `#!/bin/sh\nif [ "$1" = root ]; then printf '%s\\n' '${config.ghqRoot}'; else exit 99; fi\n`,
+        { mode: 0o755 },
+      );
+      const cliPath = path.resolve("src/cli/main.ts");
+      const tsxPath = path.resolve("node_modules/tsx/dist/loader.mjs");
+      const invoke = () =>
+        spawnSync(process.execPath, ["--import", tsxPath, cliPath, command], {
+          cwd: root,
+          env: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+          },
+          encoding: "utf8",
+        });
+      await writeFile(destination, "user contents");
+      const failed = invoke();
+      expect(failed.status).not.toBe(0);
+      expect(failed.stderr).toContain(
+        `${destination}: existing file is preserved`,
+      );
+      expect(await readFile(destination, "utf8")).toBe("user contents");
+      await rm(destination);
+      for (let count = 0; count < 2; count++) {
+        const result = invoke();
+        expect(result.stderr).toBe("");
+        expect(result.status).toBe(0);
+        expect(await readlink(destination)).toBe(source);
+      }
+      expect(await readFile(path.join(source, "keep.txt"), "utf8")).toBe(
+        "source contents",
+      );
+    },
+  );
 });
