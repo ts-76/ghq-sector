@@ -14,7 +14,6 @@ import {
   Stethoscope,
 } from "lucide-svelte";
 import { onMount } from "svelte";
-import { requestRepoProposal } from "./repo-proposal.js";
 
 type ConfigFormat = "json" | "yaml";
 type EditorTab = "visual" | "raw";
@@ -187,17 +186,36 @@ let saving = $state(false);
 let previewLoading = $state(false);
 let applying = $state(false);
 let doctorLoading = $state(false);
-let addingRepo = $state(false);
+
 let ghReposLoading = $state(false);
 let errorMessage = $state("");
 let successMessage = $state("");
 let previewResult = $state<PreviewResult | null>(null);
 let applyResult = $state<ApplyResult | null>(null);
+let appliedSnapshot = $state("");
+let previewSnapshot = $state("");
 let doctorResult = $state<DoctorResult | null>(null);
 let rawValue = $state("");
 let currentTab = $state<EditorTab>("visual");
 let originalSnapshot = $state("");
+let draftError = $derived.by(() => {
+  if (format !== "json")
+    return "YAML editing is not supported. Use the CLI to edit this file.";
+  try {
+    JSON.parse(rawValue);
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : "Invalid JSON";
+  }
+});
+let draftValid = $derived(format === "json" && !draftError);
 let unsavedChanges = $derived(serializeCurrentValue() !== originalSnapshot);
+// A revision identifies an edit; the epoch identifies a loaded file/baseline.
+let draftRevision = 0;
+let loadEpoch = 0;
+let previewRequest = 0;
+let doctorRequest = 0;
+let ghRequest = 0;
 let ghRepos = $state<GhRepositoryCandidate[]>([]);
 let ghAccounts = $state<GhAccount[]>([]);
 let ghAvailable = $state(false);
@@ -223,20 +241,9 @@ function extractCategories(
     : [];
 }
 
-function getCurrentCategories() {
-  if (currentTab === "raw") {
-    try {
-      const parsed = parseRawValue();
-      return extractCategories(parsed as JsonValue);
-    } catch {
-      return extractCategories(value);
-    }
-  }
-
-  return extractCategories(value);
-}
-
-const categories = $derived(getCurrentCategories());
+const categories = $derived(
+  draftValid ? extractCategories(JSON.parse(rawValue)) : [],
+);
 const filteredGhRepos = $derived.by(() => {
   const query = ghRepoFilter.trim().toLowerCase();
   if (!query) {
@@ -260,7 +267,7 @@ onMount(async () => {
 });
 
 $effect(() => {
-  if (loading || saving || applying || addingRepo) {
+  if (loading || saving || applying) {
     return;
   }
 
@@ -269,13 +276,7 @@ $effect(() => {
     return;
   }
 
-  if (currentTab === "raw") {
-    try {
-      parseRawValue();
-    } catch {
-      return;
-    }
-  }
+  if (!draftValid) return;
 
   if (previewTimer) {
     clearTimeout(previewTimer);
@@ -298,29 +299,70 @@ function serializeConfig(source: JsonValue) {
 }
 
 function serializeCurrentValue() {
-  if (currentTab === "raw") {
-    try {
-      return serializeConfig(parseRawValue() as JsonValue);
-    } catch {
-      return rawValue;
-    }
+  try {
+    return serializeConfig(JSON.parse(rawValue));
+  } catch {
+    return rawValue;
   }
-
-  return serializeConfig(value);
 }
 
 function getCurrentPayload() {
-  return (currentTab === "raw" ? parseRawValue() : value) as JsonValue;
+  if (!draftValid) throw new Error(draftError || "JSON editing is unavailable");
+  return JSON.parse(rawValue) as JsonValue;
 }
 
 function getConfigObject() {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  const current = getCurrentPayload();
+  if (!current || typeof current !== "object" || Array.isArray(current)) {
+    throw new Error("Config must be a JSON object");
+  }
+  return current as Record<string, unknown>;
+}
+
+function editRaw(text: string) {
+  rawValue = text;
+  draftRevision++;
+  previewRequest++;
+  previewLoading = false;
+  previewResult = null;
+  previewSnapshot = "";
+  applyResult = null;
+  successMessage = "";
+  try {
+    value = JSON.parse(text);
+  } catch {
+    /* Preserve invalid text without falling back. */
+  }
+}
+
+function editVisual(next: JsonValue) {
+  value = next;
+  editRaw(serializeConfig(next));
+}
+
+function switchTab(tab: EditorTab) {
+  if (tab === "visual" && !draftValid) return;
+  currentTab = tab;
+}
+
+async function responsePayload(response: Response) {
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.message === "string"
+        ? payload.message
+        : `Request failed (${response.status})`,
+    );
+  }
+  return payload;
 }
 
 function getRepoTemplate() {
-  const config = getConfigObject();
+  const payload = getCurrentPayload();
+  const config =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
   const defaults =
     config.defaults && typeof config.defaults === "object"
       ? (config.defaults as Record<string, unknown>)
@@ -340,6 +382,7 @@ function getRepoTemplate() {
 }
 
 function getSelectedRepoPreview(): RepoPreview {
+  if (!draftValid) return null;
   const selected = ghRepos.find(
     (repo) => repo.nameWithOwner === ghSelectedRepo,
   );
@@ -349,148 +392,171 @@ function getSelectedRepoPreview(): RepoPreview {
 
   return {
     ...selected,
-    category: ghSelectedCategory || getRepoTemplate().category,
+    category: categories.includes(ghSelectedCategory)
+      ? ghSelectedCategory
+      : getRepoTemplate().category,
   };
 }
 
 async function load() {
+  const epoch = ++loadEpoch;
+  const revision = draftRevision;
+  previewRequest++;
   loading = true;
   errorMessage = "";
-
   try {
-    const response = await fetch("/api/config");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    const payload = await response.json();
+    const payload = await responsePayload(await fetch("/api/config"));
+    if (epoch !== loadEpoch || revision !== draftRevision) return false;
     schema = payload.schema ?? null;
     value = payload.value;
     configPath = payload.path;
     format = payload.format;
     rawValue = payload.raw;
-    originalSnapshot = serializeConfig(payload.value as JsonValue);
+    originalSnapshot =
+      format === "json" ? serializeConfig(payload.value) : payload.raw;
+    currentTab = format === "json" ? currentTab : "raw";
+    draftRevision++;
+    previewResult = null;
+    previewSnapshot = "";
+    applyResult = null;
+    return true;
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "failed to load config";
+    if (epoch === loadEpoch)
+      errorMessage =
+        error instanceof Error ? error.message : "failed to load config";
+    return false;
   } finally {
-    loading = false;
+    if (epoch === loadEpoch) loading = false;
   }
 }
 
 async function reload() {
+  if (unsavedChanges && !window.confirm("Discard unsaved changes and reload?"))
+    return;
   successMessage = "";
-  await load();
-  await loadDoctor();
-  await loadGhRepos();
-  await previewWorkspace();
+  if (!(await load())) return;
+  await Promise.all([
+    loadDoctor(),
+    loadGhRepos(),
+    previewWorkspace({ silent: true }),
+  ]);
   successMessage = `reloaded ${configPath}`;
 }
 
 async function save() {
+  if (!draftValid || loading || saving || applying) return;
+  const payload = getCurrentPayload();
+  const snapshot = serializeConfig(payload);
+  const epoch = loadEpoch;
+  const revision = draftRevision;
   saving = true;
   successMessage = "";
   errorMessage = "";
-
   try {
-    const payload = currentTab === "raw" ? parseRawValue() : value;
-    const response = await fetch("/api/config", {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
+    const result = await responsePayload(
+      await fetch("/api/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+    // The server saved this snapshot, even if a newer edit is already visible.
+    if (epoch === loadEpoch) {
+      originalSnapshot =
+        result.value === undefined ? snapshot : serializeConfig(result.value);
+      if (revision === draftRevision) successMessage = `saved ${configPath}`;
     }
-
-    await load();
-    await loadGhRepos();
-    await previewWorkspace({ silent: true });
-    successMessage = `saved ${configPath}`;
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "failed to save config";
+    if (epoch === loadEpoch && revision === draftRevision)
+      errorMessage =
+        error instanceof Error ? error.message : "failed to save config";
   } finally {
     saving = false;
   }
 }
 
 async function previewWorkspace(options?: { silent?: boolean }) {
+  if (!draftValid || loading || saving || applying) return;
+  const payload = getCurrentPayload();
+  const request = ++previewRequest;
+  const epoch = loadEpoch;
+  const revision = draftRevision;
   previewLoading = true;
   if (!options?.silent) {
     successMessage = "";
     errorMessage = "";
   }
-
   try {
-    const response = await fetch("/api/preview", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(getCurrentPayload()),
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    const payload = await response.json();
-    previewResult = payload.result ?? null;
-    if (!options?.silent) {
-      successMessage = "workspace plan updated";
-    }
+    const result = await responsePayload(
+      await fetch("/api/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+    if (
+      request !== previewRequest ||
+      epoch !== loadEpoch ||
+      revision !== draftRevision
+    )
+      return;
+    previewResult = result.result ?? null;
+    previewSnapshot = serializeConfig(payload);
+    if (!options?.silent) successMessage = "workspace plan updated";
   } catch (error) {
-    if (!options?.silent) {
+    if (
+      request === previewRequest &&
+      epoch === loadEpoch &&
+      revision === draftRevision &&
+      !options?.silent
+    ) {
       errorMessage =
         error instanceof Error ? error.message : "failed to preview workspace";
     }
   } finally {
-    previewLoading = false;
+    if (request === previewRequest) previewLoading = false;
   }
 }
 
 async function applyWorkspace() {
+  if (!draftValid || loading || saving || applying) return;
+  const payload = getCurrentPayload();
+  const snapshot = serializeConfig(payload);
+  const epoch = loadEpoch;
+  const revision = draftRevision;
   applying = true;
+  previewRequest++;
+  previewLoading = false;
   successMessage = "";
   errorMessage = "";
-
   try {
-    const response = await fetch("/api/apply", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(getCurrentPayload()),
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    const payload = await response.json();
-    applyResult = (payload.result ?? null) as ApplyResult | null;
-    await load();
-    await loadDoctor();
-    await loadGhRepos();
-    await previewWorkspace({ silent: true });
-    if (applyResult) {
-      successMessage = `applied workspace / fetched ${applyResult.fetchedRepos.length} / linked ${applyResult.linkedCount} repos / linked ${applyResult.agentSkills.linkedCount} agent skills / copied config`;
-    } else {
-      successMessage = payload.message ?? `applied ${configPath}`;
-    }
+    const result = await responsePayload(
+      await fetch("/api/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+    if (epoch !== loadEpoch) return;
+    const acknowledged =
+      result.value === undefined ? snapshot : serializeConfig(result.value);
+    originalSnapshot = acknowledged;
+    appliedSnapshot = acknowledged;
+    if (revision !== draftRevision) return;
+    applyResult = result.result ?? null;
+    successMessage = result.message ?? `applied ${configPath}`;
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "failed to apply workspace";
+    if (epoch === loadEpoch && revision === draftRevision)
+      errorMessage =
+        error instanceof Error ? error.message : "failed to apply workspace";
   } finally {
     applying = false;
   }
 }
 
 async function loadDoctor() {
+  const request = ++doctorRequest;
+  const epoch = loadEpoch;
   doctorLoading = true;
 
   try {
@@ -499,34 +565,43 @@ async function loadDoctor() {
       throw new Error(await response.text());
     }
     const payload = await response.json();
+    if (request !== doctorRequest || epoch !== loadEpoch) return;
     doctorResult = payload.result ?? null;
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "failed to load doctor result";
+    if (request === doctorRequest && epoch === loadEpoch)
+      errorMessage =
+        error instanceof Error ? error.message : "failed to load doctor result";
   } finally {
-    doctorLoading = false;
+    if (request === doctorRequest) doctorLoading = false;
   }
 }
 
-async function addRepoTemplate() {
-  addingRepo = true;
+function appendRepo(repo: Record<string, unknown>, message: string) {
+  if (!draftValid || loading || saving || applying) return;
   successMessage = "";
   errorMessage = "";
-
   try {
-    value = await requestRepoProposal(getCurrentPayload(), undefined);
-    rawValue = serializeConfig(value);
-    await previewWorkspace();
-    successMessage = "added repo template";
+    const config = getConfigObject();
+    if (config.repos !== undefined && !Array.isArray(config.repos))
+      throw new Error("repos must be an array");
+    editVisual({
+      ...config,
+      repos: [...((config.repos as JsonValue[]) ?? []), repo],
+    } as JsonValue);
+    successMessage = message;
   } catch (error) {
     errorMessage =
-      error instanceof Error ? error.message : "failed to add repo template";
-  } finally {
-    addingRepo = false;
+      error instanceof Error ? error.message : "failed to add repo";
   }
+}
+
+function addRepoTemplate() {
+  appendRepo(getRepoTemplate(), "added repo template to draft");
 }
 
 async function loadGhRepos(ownerOverride?: string) {
+  const request = ++ghRequest;
+  const epoch = loadEpoch;
   ghReposLoading = true;
   ghSelectedRepo = "";
   ghRepoFilter = "";
@@ -540,6 +615,7 @@ async function loadGhRepos(ownerOverride?: string) {
     }
 
     const payload = (await response.json()) as GhReposPayload;
+    if (request !== ghRequest || epoch !== loadEpoch) return;
     ghAvailable = payload.available;
     ghAccounts = payload.accounts ?? [];
     ghRepos = payload.repositories ?? [];
@@ -547,6 +623,7 @@ async function loadGhRepos(ownerOverride?: string) {
     ghSelectedRepo = "";
     ghSelectedCategory = ghSelectedCategory || categories[0] || "";
   } catch (error) {
+    if (request !== ghRequest || epoch !== loadEpoch) return;
     ghAvailable = false;
     ghAccounts = [];
     ghRepos = [];
@@ -555,49 +632,22 @@ async function loadGhRepos(ownerOverride?: string) {
     errorMessage =
       error instanceof Error ? error.message : "failed to load gh repositories";
   } finally {
-    ghReposLoading = false;
+    if (request === ghRequest) ghReposLoading = false;
   }
 }
 
-async function addSelectedGhRepo() {
+function addSelectedGhRepo() {
   const selected = selectedRepoPreview;
-  if (!selected) {
-    return;
-  }
-
-  addingRepo = true;
-  successMessage = "";
-  errorMessage = "";
-
-  try {
-    value = await requestRepoProposal(getCurrentPayload(), {
+  if (!selected) return;
+  appendRepo(
+    {
       provider: selected.provider,
       owner: selected.owner,
       name: selected.name,
       category: selected.category,
-    });
-    rawValue = serializeConfig(value);
-    await previewWorkspace();
-    successMessage = `added ${selected.nameWithOwner}`;
-  } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "failed to add selected repo";
-  } finally {
-    addingRepo = false;
-  }
-}
-
-function parseRawValue() {
-  if (format === "json") {
-    return JSON.parse(rawValue);
-  }
-
-  const trimmed = rawValue.trim();
-  if (!trimmed) {
-    return {};
-  }
-
-  return JSON.parse(JSON.stringify(value));
+    },
+    `added ${selected.nameWithOwner} to draft`,
+  );
 }
 </script>
 
@@ -613,17 +663,21 @@ function parseRawValue() {
         <span>{format}</span>
         <span class:dirty={unsavedChanges}>{unsavedChanges ? 'unsaved' : 'saved'}</span>
       </div>
-      <button type="button" class="primary-button icon-only-button" onclick={save} disabled={loading || saving || applying || addingRepo || previewLoading} aria-label={saving ? 'Saving config' : 'Save config'} data-tooltip={saving ? 'Saving config' : 'Save config'}>
+      <button type="button" class="primary-button icon-only-button" onclick={save} disabled={!draftValid || loading || saving || applying} aria-label={saving ? 'Saving config' : 'Save config'} data-tooltip={saving ? 'Saving config' : 'Save config'}>
         <Save size={14} />
       </button>
-      <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={loading || saving || applying || addingRepo || previewLoading} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
+      <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={!draftValid || loading || saving || applying} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
         <CheckCheck size={14} />
       </button>
-      <button type="button" class="ghost-button icon-only-button" onclick={reload} disabled={loading || saving || doctorLoading || ghReposLoading} aria-label="Reload" data-tooltip="Reload">
+      <button type="button" class="ghost-button icon-only-button" onclick={reload} disabled={loading || saving || applying || doctorLoading || ghReposLoading} aria-label="Reload" data-tooltip="Reload">
         <RotateCcw size={14} />
       </button>
     </div>
   </section>
+
+  {#if draftError && !loading}
+    <p class="status error" role="alert">{draftError}</p>
+  {/if}
 
   {#if errorMessage}
     <p class="status error">{errorMessage}</p>
@@ -639,8 +693,8 @@ function parseRawValue() {
         <h2>{configPath ? configPath.split('/').at(-1) : 'ghq-sector config'}</h2>
         <div class="editor-tools">
           <div class="tabs segmented-tabs">
-            <button type="button" class:active={currentTab === 'visual'} onclick={() => (currentTab = 'visual')}>Visual</button>
-            <button type="button" class:active={currentTab === 'raw'} onclick={() => (currentTab = 'raw')}>Raw</button>
+            <button type="button" class:active={currentTab === 'visual'} onclick={() => switchTab('visual')} disabled={!draftValid}>Visual</button>
+            <button type="button" class:active={currentTab === 'raw'} onclick={() => switchTab('raw')}>Raw</button>
           </div>
         </div>
       </div>
@@ -648,13 +702,11 @@ function parseRawValue() {
       {#if loading}
         <div class="placeholder editor-placeholder">Loading config...</div>
       {:else if currentTab === 'raw'}
-        <textarea class="raw-editor" bind:value={rawValue} spellcheck="false"></textarea>
+        <textarea class="raw-editor" aria-label="Raw JSON config" value={rawValue} oninput={(event) => editRaw(event.currentTarget.value)} readonly={format !== 'json'} spellcheck="false"></textarea>
       {:else if schema}
         <JsonEditor
           value={value}
-          onchange={(nextValue) => {
-            value = nextValue;
-          }}
+          onchange={editVisual}
           {schema}
           height="min(78vh, 920px)"
           class="json-editor"
@@ -672,10 +724,10 @@ function parseRawValue() {
         <div class="panel-header compact-panel-header">
           <h3>Workspace plan</h3>
           <div class="inline-actions">
-            <button type="button" class="ghost-button icon-only-button" onclick={previewWorkspace} disabled={loading || saving || applying || addingRepo || previewLoading} aria-label={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'} data-tooltip={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'}>
+            <button type="button" class="ghost-button icon-only-button" onclick={() => previewWorkspace()} disabled={!draftValid || loading || saving || applying} aria-label={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'} data-tooltip={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'}>
               <RotateCcw size={14} />
             </button>
-            <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={loading || saving || applying || addingRepo || previewLoading} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
+            <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={!draftValid || loading || saving || applying} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
               <CheckCheck size={14} />
             </button>
           </div>
@@ -774,7 +826,7 @@ function parseRawValue() {
             <strong>Doctor</strong>
             <small>{doctorResult?.ok ? 'Healthy' : 'Warn'}</small>
           </span>
-          <button type="button" class="ghost-button inline-button icon-only-button" onclick={loadDoctor} disabled={doctorLoading || saving || addingRepo} aria-label={doctorLoading ? 'Loading' : 'Refresh'} data-tooltip={doctorLoading ? 'Loading' : 'Refresh'}>
+          <button type="button" class="ghost-button inline-button icon-only-button" onclick={loadDoctor} disabled={doctorLoading || saving || applying} aria-label={doctorLoading ? 'Loading' : 'Refresh'} data-tooltip={doctorLoading ? 'Loading' : 'Refresh'}>
             <RotateCcw size={14} />
           </button>
         </summary>
@@ -802,7 +854,7 @@ function parseRawValue() {
             <strong>Repo presets</strong>
             <small>{ghAvailable ? `${ghRepos.length} repos` : 'template only'}</small>
           </span>
-          <button type="button" class="ghost-button inline-button icon-only-button" onclick={() => loadGhRepos()} disabled={ghReposLoading || saving || addingRepo} aria-label={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'} data-tooltip={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'}>
+          <button type="button" class="ghost-button inline-button icon-only-button" onclick={() => loadGhRepos()} disabled={ghReposLoading || saving || applying} aria-label={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'} data-tooltip={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'}>
             <RotateCcw size={14} />
           </button>
         </summary>
@@ -820,9 +872,9 @@ function parseRawValue() {
                 type="button"
                 class="ghost-button icon-only-button repo-template-button"
                 onclick={addRepoTemplate}
-                disabled={loading || saving || addingRepo}
-                aria-label={addingRepo ? 'Adding empty object' : 'Add empty object'}
-                data-tooltip={addingRepo ? 'Adding empty object' : 'Add empty object'}
+                disabled={!draftValid || loading || saving || applying}
+                aria-label={'Add empty object'}
+                data-tooltip={'Add empty object'}
               >
                 <Plus size={14} />
               </button>
@@ -904,9 +956,9 @@ function parseRawValue() {
               </div>
             </div>
 
-            <button type="button" class="primary-button preset-button repo-add-button" onclick={addSelectedGhRepo} disabled={addingRepo || ghReposLoading || !ghSelectedRepo}>
+            <button type="button" class="primary-button preset-button repo-add-button" onclick={addSelectedGhRepo} disabled={!draftValid || loading || saving || applying || ghReposLoading || !ghSelectedRepo}>
               <FolderGit2 size={14} />
-              <span>{addingRepo ? 'Adding…' : 'Add selected repo'}</span>
+              <span>Add selected repo</span>
             </button>
           {:else}
             <p class="muted">gh is not available. Only adding an empty repo template is enabled.</p>
