@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import "release-please";
 import { parseConventionalCommits } from "release-please/build/src/commit.js";
@@ -5,11 +6,53 @@ import { buildStrategy } from "release-please/build/src/factory.js";
 import type { Scm } from "release-please/build/src/scm.js";
 import { TagName } from "release-please/build/src/util/tag-name.js";
 import { describe, expect, it } from "vitest";
+import YAML from "yaml";
 
 const readJson = async (path: string) =>
   JSON.parse(await readFile(path, "utf8"));
 
 describe("release migration", () => {
+  it("rejects tag creation even inside the main Actions environment", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["scripts/release-control.mjs", "release"],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "ts-76/ghq-sector",
+          GITHUB_REF: "refs/heads/main",
+          GITHUB_SHA: "a".repeat(40),
+        },
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "Tag creation and publication are disabled",
+    );
+  });
+
+  it("only maintains release PRs after verification, without OIDC or publishing jobs", async () => {
+    const workflow = YAML.parse(
+      await readFile(".github/workflows/release.yml", "utf8"),
+    );
+    expect(Object.keys(workflow.jobs).sort()).toEqual(["release-pr", "verify"]);
+    expect(workflow.jobs["release-pr"].needs).toBe("verify");
+    expect(workflow.jobs["release-pr"].if).toBe(
+      "github.ref == 'refs/heads/main'",
+    );
+    expect(workflow.permissions).toEqual({ contents: "read" });
+    for (const job of Object.values(workflow.jobs) as {
+      permissions?: Record<string, string>;
+    }[]) {
+      expect(job.permissions?.["id-token"]).toBeUndefined();
+    }
+    expect(workflow.jobs["release-pr"].steps.at(-1).run).toBe(
+      "node scripts/release-control.mjs pr",
+    );
+  });
+
   it("continues the existing version and updates both npm version records", async () => {
     const config = await readJson("release-please-config.json");
     const manifest = await readJson(".release-please-manifest.json");

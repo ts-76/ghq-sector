@@ -40,9 +40,6 @@ jobs:
       - name: Install UI dependencies
         run: bun install --cwd ui --frozen-lockfile
 
-      - name: Install pinned publish CLI
-        run: npm ci --prefix .github/publish-cli --ignore-scripts --no-audit --no-fund
-
       - name: Dependency audit
         run: bun run audit
 

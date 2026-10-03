@@ -1,80 +1,85 @@
-# Releasing ghq-sector
+# Release PRs and publication pause
 
-Release Please replaces semantic-release. Ordinary commits update a release PR;
-merging that PR advances the tracked package version and changelog. The initial
-manifest and package version are 1.3.0, matching the existing v1.3.0 release. The
-bootstrap commit is that release's commit; older changes are not released again.
+Release Please replaces semantic-release. Ordinary main commits maintain a
+version/changelog release PR only after the main commit passes verification.
+The manifest and package start at the already published 1.3.0; the bootstrap
+commit is the existing v1.3.0 commit, so older changes are not proposed again.
 
-The existing `release.yml` workflow handles release PRs, verification, GitHub
-releases, and npm publication in separate jobs. All jobs are restricted to main.
-A failing audit or acceptance check prevents GitHub release/tag creation and npm
-publication. Publication checks out the commit returned by Release Please and
-requires its package version to match the release tag. The official Release Please CLI 17.11.2 and its execution dependencies are locked
-in the root Bun/npm locks and audited before use. The distribution Action is
-avoided because its bundled lock contains vulnerable dependencies. npm is pinned
-in `.github/publish-cli/package-lock.json`.
+**Automatic GitHub tags/releases and npm publication are disabled.** The user
+chose to land dependency updates first without an unauditable publishing tool.
+The workflow has only `verify` and `release-pr` jobs, and no OIDC permission.
+Merging a release PR can update version/changelog files, but creates no tag or
+published package. Review release PRs as proposals; restore publication in a
+separate reviewed change before using them to release a version. Nothing here
+changes npm trusted publisher settings or creates credentials.
 
-## Review and authentication
+## Verification and review
 
-The release PR uses the existing GITHUB_TOKEN with the existing contents, issues,
-and pull request permissions. GitHub does not automatically run PR workflows for
-PRs created with this token. Before merging a release PR, run **CI** and **Security**
-using their workflow_dispatch controls, selecting the release PR branch, and
-review the resulting checks. Do not add a personal token just to trigger CI.
-The release workflow also verifies the merged main commit before creating a tag.
-Release candidates are built once and must match that workflow's GITHUB_SHA and
-checked-out package version before any creation. A queued older run cannot tag
-newer main. Release creation uses that exact candidate through the public GitHub
-API. Existing tags are never moved. If creation succeeds but a follow-up comment
-or label fails, the verified release outputs survive; retry can recover a tag
-and release only when both resolve to that same verified SHA. With no candidate,
-no mutating API is called.
+The existing `release.yml` filename is retained. All jobs are restricted to main.
+The Release Please job depends on successful full verification and separately
+audits its installed tooling. Official `release-please@17.11.2` and its execution
+dependencies are locked in the root Bun/npm locks. The distribution Action is
+avoided because its bundled lock contains affected dependencies.
 
-The publish job retains the existing id-token permission and the `release.yml`
-filename for npm trusted publishing. It creates no npm tokens and changes no
-trusted publisher settings. Actual OIDC authentication can only be verified in
-a real GitHub-hosted publication; a local publish dry run cannot verify it. If the
-existing trusted publisher rejects this workflow, stop and review its existing
-configuration rather than creating new credentials or expanding permissions.
+Release PR creation uses the existing GITHUB_TOKEN with the existing contents,
+issues and pull request permissions. GitHub does not automatically run PR
+workflows for PRs created with this token. Before reviewing or merging such a PR,
+dispatch **CI** and **Security** on its branch and inspect their final results.
+No personal token is added to trigger CI. `release-control.mjs release` rejects
+execution before constructing a GitHub client, including on main in Actions;
+the former tag/release helper and publishing CLI are removed.
 
-## Local acceptance and publish CLI audit
+## Local acceptance
 
-Use Node 24 and Bun 1.3.13. Install root and UI dependencies with Bun, preserving
-the Socket scanner and minimum release age. The separate publish tool uses npm
-ci because its npm lockfile records npm's bundled dependency tree:
+Use Node 24 and Bun 1.3.13. Bun remains the repository manager; retain its Socket
+scanner and three-day minimum release age. No global manager changes are needed.
 
 ```sh
 bun install --frozen-lockfile
 bun install --cwd ui --frozen-lockfile
-npm ci --prefix .github/publish-cli --ignore-scripts --no-audit --no-fund
 bun run lint
 bun run typecheck
 bun run --cwd ui typecheck
 bun run test
 bun run build
 bun run audit
-bun run publish:dry-run
+bun run pack:check
 ```
 
-`--no-audit` applies only to installation; the required subsequent audit is not
-suppressed. `bun run audit` checks the root, UI, root npm lockfile, and the exact
-npm CLI used for publishing. The explicit Node entry point avoids accidentally
-selecting a different global npm or a runner's newest npm. The dry-run script uses a temporary tarball, checks both CLI bin entries and the
-UI assets, disables credential/OIDC access, and calls the exact pinned CLI with
-`--dry-run --offline` and a fresh cache. This also allows testing the existing
-1.3.0 baseline without a registry version collision. It does not publish or
-execute lifecycle scripts; the package has no required publish lifecycle scripts.
+`bun run audit` checks the root Bun tree, UI Bun tree and root npm lockfile at the
+existing moderate threshold, including the release tooling. No advisory is
+ignored. There is no installed or runnable project-owned npm publisher to omit
+from these audits.
 
-## Current upstream blocker (2026-10-03)
+`pack:check` uses `bun pm pack --ignore-scripts` into a temporary directory. It
+checks the actual tarball manifest/version, both CLI bin aliases, the built CLI,
+UI index/assets and LICENSE, then removes the temporary tarball. It removes npm
+and OIDC credentials from the packaging subprocess environment and never calls
+a publish command. This is a package-content check, not a publish/authentication
+dry run. Actual npm OIDC authentication remains untested.
 
-Application and UI audits are clean after the dependency refresh. The pinned npm
-11.20.0 CLI still bundles brace-expansion 5.0.9, ip-address 10.5.0, and undici
-6.28.0. The three direct vulnerable bundles remain. The current npm audit also counts
-related dependent packages, reporting 24 affected entries (23 high, one moderate). The
-checked npm 11.21.0 and 12.2.0 tarballs contain the same affected copies. Consumer
-overrides and npm audit fix do not replace these bundled dependencies.
+## Why publication remains disabled (2026-10-03)
 
-The publish CLI remains visible to Security CI and blocks tags/publication. Do
-not ignore these findings, weaken the audit level, or bypass verification. Update
-the pinned tool and lockfile when an upstream CLI with fixed bundled dependencies
-is available, then repeat the CLI audit, dry run, acceptance checks, and CI.
+The actual official npm 11.20.0 and 11.21.0 publisher installations each audit at
+24 affected entries (23 high, one moderate), including dependent packages. There
+are four directly affected bundles: brace-expansion 5.0.9, ip-address 10.5.0,
+undici 6.28.0 and http-cache-semantics 4.2.0. The previously inspected npm 12.2.0
+bundles the same affected copies. Consumer overrides and `npm audit fix` do not
+replace npm's bundled dependencies.
+
+The [http-cache-semantics advisory](https://github.com/advisories/GHSA-ch52-4w7c-c8xp)
+currently lists no patched release, and its
+[upstream issue](https://github.com/kornelski/http-cache-semantics/issues/56) is open.
+A minor or major CLI upgrade therefore does not make publication auditable.
+The candidate npm 11.21.0 also had not reached the repository's three-day release
+age at verification time; it was tested in an isolated research directory and
+was not promoted to the project. Rebuilding or forking npm would still need a
+reviewed fix for the unpatched dependency and is not part of this change.
+
+A future publication PR must introduce an audited publisher, lock and audit the
+actual executed dependency tree, test package creation and release recovery,
+verify tags are bound to the checked SHA/version, and preserve the existing
+trusted publisher workflow identity without adding tokens or permissions.
+Keep all acceptance/audit gates before any tag or publication. Restoring a
+publisher is an explicit implementation change; ordinary main or release-PR
+merges cannot enable it.

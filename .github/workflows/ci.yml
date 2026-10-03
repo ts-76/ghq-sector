@@ -51,8 +51,5 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Install pinned publish CLI
-        run: npm ci --prefix .github/publish-cli --ignore-scripts --no-audit --no-fund
-
-      - name: Check package without publishing
-        run: bun run publish:dry-run
+      - name: Check package tarball
+        run: bun run pack:check

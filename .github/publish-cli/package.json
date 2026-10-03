@@ -1,8 +1,0 @@
-{
-  "name": "ghq-sector-publish-cli",
-  "private": true,
-  "description": "Pinned npm CLI used by the release workflow; bundled dependencies are audited separately.",
-  "dependencies": {
-    "npm": "11.20.0"
-  }
-}

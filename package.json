@@ -34,9 +34,8 @@
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
     "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
     "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin",
-    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate && bun run audit:publish-cli",
-    "audit:publish-cli": "node .github/publish-cli/node_modules/npm/bin/npm-cli.js audit --prefix .github/publish-cli --audit-level=moderate",
-    "publish:dry-run": "node scripts/publish-dry-run.mjs"
+    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate",
+    "pack:check": "node scripts/pack-check.mjs"
   },
   "keywords": [
     "ghq",
