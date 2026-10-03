@@ -94,7 +94,7 @@ Starts a local web UI built with visual-json.
 ```bash
 gsec edit
 gsec edit --config ./ghq-sector.config.json --no-open
-gsec edit --host 0.0.0.0 --port 4173
+gsec edit --host localhost --port 4173
 ```
 
 **Options:**

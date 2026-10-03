@@ -14,6 +14,7 @@ import {
   Stethoscope,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import { requestRepoProposal } from "./repo-proposal.js";
 
 type ConfigFormat = "json" | "yaml";
 type EditorTab = "visual" | "raw";
@@ -513,21 +514,8 @@ async function addRepoTemplate() {
   errorMessage = "";
 
   try {
-    const response = await fetch("/api/repos", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        repo: getRepoTemplate(),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    await load();
+    value = await requestRepoProposal(getCurrentPayload(), undefined);
+    rawValue = serializeConfig(value);
     await previewWorkspace();
     successMessage = "added repo template";
   } catch (error) {
@@ -582,26 +570,13 @@ async function addSelectedGhRepo() {
   errorMessage = "";
 
   try {
-    const response = await fetch("/api/repos", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        repo: {
-          provider: selected.provider,
-          owner: selected.owner,
-          name: selected.name,
-          category: selected.category,
-        },
-      }),
+    value = await requestRepoProposal(getCurrentPayload(), {
+      provider: selected.provider,
+      owner: selected.owner,
+      name: selected.name,
+      category: selected.category,
     });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    await load();
+    rawValue = serializeConfig(value);
     await previewWorkspace();
     successMessage = `added ${selected.nameWithOwner}`;
   } catch (error) {
