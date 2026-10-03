@@ -130,36 +130,35 @@ function deferred() {
 }
 
 describe("local editor HTTP boundaries", () => {
-  it.each([
-    "127.0.0.1",
-    "localhost",
-    "::1",
-  ])("supports legitimate reads, Save, Preview and Apply on %s", async (host) => {
-    const f = await fixture(host);
-    expect(
-      (
-        await request(f.origin, "/api/config", {
-          headers: { Origin: f.origin },
-        })
-      ).status,
-    ).toBe(200);
-    const draft = { ...f.config, categories: ["draft"] };
-    expect((await request(f.origin, "/api/config", json(draft))).status).toBe(
-      200,
-    );
-    expect(
-      (await request(f.origin, "/api/preview", json(draft, "POST"))).status,
-    ).toBe(200);
-    expect(
-      (await request(f.origin, "/api/apply", json(draft, "POST"))).status,
-    ).toBe(200);
-    expect(JSON.parse(await readFile(f.configPath, "utf8")).categories).toEqual(
-      ["draft"],
-    );
-    expect(
-      await readFile(path.join(f.config.workspaceRoot, "AGENTS.md"), "utf8"),
-    ).toContain("ghq-sector");
-  });
+  it.each(["127.0.0.1", "localhost", "::1"])(
+    "supports legitimate reads, Save, Preview and Apply on %s",
+    async (host) => {
+      const f = await fixture(host);
+      expect(
+        (
+          await request(f.origin, "/api/config", {
+            headers: { Origin: f.origin },
+          })
+        ).status,
+      ).toBe(200);
+      const draft = { ...f.config, categories: ["draft"] };
+      expect((await request(f.origin, "/api/config", json(draft))).status).toBe(
+        200,
+      );
+      expect(
+        (await request(f.origin, "/api/preview", json(draft, "POST"))).status,
+      ).toBe(200);
+      expect(
+        (await request(f.origin, "/api/apply", json(draft, "POST"))).status,
+      ).toBe(200);
+      expect(
+        JSON.parse(await readFile(f.configPath, "utf8")).categories,
+      ).toEqual(["draft"]);
+      expect(
+        await readFile(path.join(f.config.workspaceRoot, "AGENTS.md"), "utf8"),
+      ).toContain("ghq-sector");
+    },
+  );
 
   it("prevents UI framing on assets and API success/error responses", async () => {
     const f = await fixture();
@@ -176,39 +175,46 @@ describe("local editor HTTP boundaries", () => {
     }
   });
 
-  it.each([
-    "template",
-    "selected GitHub repo",
-  ])("uses the bundled UI proposal contract for %s without saving the draft", async (action) => {
-    const f = await fixture();
-    const draft = {
-      ...f.config,
-      categories: ["unsaved"],
-      defaults: { category: "unsaved", owner: "draft-owner" },
-    };
-    const repo = {
-      provider: "github.com",
-      owner: "draft-owner",
-      name: action === "template" ? "" : "chosen",
-      category: "unsaved",
-    };
-    const send: typeof fetch = (input, init) =>
-      fetch(new URL(String(input), f.origin), {
-        ...init,
-        headers: { ...init?.headers, Origin: f.origin },
+  it.each(["template", "selected GitHub repo"])(
+    "uses the bundled UI proposal contract for %s without saving the draft",
+    async (action) => {
+      const f = await fixture();
+      const draft = {
+        ...f.config,
+        categories: ["unsaved"],
+        defaults: { category: "unsaved", owner: "draft-owner" },
+      };
+      const repo = {
+        provider: "github.com",
+        owner: "draft-owner",
+        name: action === "template" ? "" : "chosen",
+        category: "unsaved",
+      };
+      const send: typeof fetch = (input, init) =>
+        fetch(new URL(String(input), f.origin), {
+          ...init,
+          headers: { ...init?.headers, Origin: f.origin },
+        });
+      const nextDraft = await requestRepoProposal(
+        draft,
+        action === "template" ? undefined : repo,
+        send,
+      );
+      expect(nextDraft).toMatchObject({
+        categories: ["unsaved"],
+        repos: [repo],
       });
-    const nextDraft = await requestRepoProposal(
-      draft,
-      action === "template" ? undefined : repo,
-      send,
-    );
-    expect(nextDraft).toMatchObject({ categories: ["unsaved"], repos: [repo] });
-    expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(f.config);
-    expect(
-      (await request(f.origin, "/api/config", json(nextDraft))).status,
-    ).toBe(200);
-    expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(nextDraft);
-  });
+      expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(
+        f.config,
+      );
+      expect(
+        (await request(f.origin, "/api/config", json(nextDraft))).status,
+      ).toBe(200);
+      expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(
+        nextDraft,
+      );
+    },
+  );
 
   it("rejects public binds before loading config or building UI", async () => {
     const { runEdit, createEditServer } = await import(
@@ -298,25 +304,28 @@ describe("local editor HTTP boundaries", () => {
     ["schema mismatch", '{"ghqRoot":42}', "application/json", 400],
     ["form body", "a=b", "application/x-www-form-urlencoded", 415],
     ["plain body", "{}", "text/plain", 415],
-  ])("returns controlled errors for %s without changing config", async (_label, body, type, status) => {
-    const f = await fixture();
-    const original = await readFile(f.configPath, "utf8");
-    for (const [route, method] of [
-      ["/api/config", "PUT"],
-      ["/api/preview", "POST"],
-      ["/api/apply", "POST"],
-      ["/api/repos", "POST"],
-    ]) {
-      const result = await request(f.origin, route, {
-        method,
-        body: String(body),
-        headers: { "Content-Type": String(type) },
-      });
-      expect(result.status).toBe(status);
-      expect(result.body.ok).toBe(false);
-    }
-    expect(await readFile(f.configPath, "utf8")).toBe(original);
-  });
+  ])(
+    "returns controlled errors for %s without changing config",
+    async (_label, body, type, status) => {
+      const f = await fixture();
+      const original = await readFile(f.configPath, "utf8");
+      for (const [route, method] of [
+        ["/api/config", "PUT"],
+        ["/api/preview", "POST"],
+        ["/api/apply", "POST"],
+        ["/api/repos", "POST"],
+      ]) {
+        const result = await request(f.origin, route, {
+          method,
+          body: String(body),
+          headers: { "Content-Type": String(type) },
+        });
+        expect(result.status).toBe(status);
+        expect(result.body.ok).toBe(false);
+      }
+      expect(await readFile(f.configPath, "utf8")).toBe(original);
+    },
+  );
 
   it("rejects malformed UTF-8 and missing Content-Type", async () => {
     const f = await fixture();
