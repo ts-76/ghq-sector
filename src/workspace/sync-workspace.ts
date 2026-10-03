@@ -15,8 +15,10 @@ import {
   assertLinkDirectories,
   assertMetadataFile,
   installLink,
+  observedOwnedLinks,
   readLinkManifest,
   usesCaseInsensitivePaths,
+  withWorkspaceSyncLease,
   writeLinkManifest,
 } from "./safe-links.js";
 import {
@@ -47,6 +49,14 @@ export interface SyncWorkspaceResult {
 export async function syncWorkspace(
   config: GhqWsConfig,
 ): Promise<SyncWorkspaceResult> {
+  return withWorkspaceSyncLease(config.workspaceRoot, () =>
+    syncWorkspaceWithLease(config),
+  );
+}
+
+async function syncWorkspaceWithLease(
+  config: GhqWsConfig,
+): Promise<SyncWorkspaceResult> {
   const workspaceRoot = config.workspaceRoot;
   const ghqRoot = config.ghqRoot;
   const linked: string[] = [];
@@ -71,6 +81,10 @@ export async function syncWorkspace(
         destinationPath: path.join(workspaceRoot, ".ghq-sector", filename),
         sourcePath: "",
       })),
+      {
+        destinationPath: path.join(workspaceRoot, ".ghq-sector-sync.lock"),
+        sourcePath: "",
+      },
     ],
     caseInsensitive,
   );
@@ -133,7 +147,11 @@ export async function syncWorkspace(
     });
   }
 
-  await writeLinkManifest(workspaceRoot, manifestPath, links);
+  await writeLinkManifest(
+    workspaceRoot,
+    manifestPath,
+    await observedOwnedLinks(workspaceRoot, links, previous),
+  );
   const agentSkillResult = await syncAgentSkills(
     workspaceRoot,
     agentSkillPlan,

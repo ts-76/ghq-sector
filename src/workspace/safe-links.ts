@@ -1,12 +1,15 @@
 import { constants } from "node:fs";
 import {
+  link as hardlink,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   readlink,
+  rename,
+  rmdir,
   symlink,
-  unlink,
 } from "node:fs/promises";
 import path from "node:path";
 
@@ -85,27 +88,47 @@ export async function assertMetadataFile(root: string, filename: string) {
 export async function usesCaseInsensitivePaths(root: string) {
   let ancestor = path.resolve(root);
   while (!(await statIfPresent(ancestor))) ancestor = path.dirname(ancestor);
-  while (ancestor !== path.dirname(ancestor)) {
-    const basename = path.basename(ancestor);
-    const alternate = basename.replace(/[a-zA-Z]/, (letter) =>
-      letter === letter.toUpperCase()
-        ? letter.toLowerCase()
-        : letter.toUpperCase(),
+  // Probe a child of the target directory, not its basename in the parent
+  // volume: a workspace may itself be a mount point with different behavior.
+  const probe = await mkdtemp(path.join(ancestor, ".ghq-sector-case-"));
+  try {
+    const original = await lstat(probe);
+    const changed = await statIfPresent(
+      path.join(ancestor, path.basename(probe).toUpperCase()),
     );
-    if (alternate !== basename) {
-      const original = await statIfPresent(ancestor);
-      const changed = await statIfPresent(
-        path.join(path.dirname(ancestor), alternate),
-      );
-      return (
-        !!changed &&
-        original?.ino === changed.ino &&
-        original?.dev === changed.dev
-      );
-    }
-    ancestor = path.dirname(ancestor);
+    return (
+      !!changed && original.ino === changed.ino && original.dev === changed.dev
+    );
+  } finally {
+    await rmdir(probe);
   }
-  return false;
+}
+
+// mkdir is an exclusive cross-process lease shared by CLI and editor Sync.
+// A crash leaves the empty lease for manual inspection; never steal a lease.
+export async function withWorkspaceSyncLease<T>(
+  root: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  await assertDirectory(root, root);
+  await mkdir(root, { recursive: true });
+  const lease = path.join(root, ".ghq-sector-sync.lock");
+  try {
+    await mkdir(lease, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST")
+      conflict(
+        lease,
+        "another sync holds the workspace lease; inspect a leftover lease before removing it",
+      );
+    throw error;
+  }
+  try {
+    return await action();
+  } finally {
+    // rmdir refuses files and nonempty directories: never recursively clean.
+    await rmdir(lease);
+  }
 }
 
 function destinationKey(destination: string, caseInsensitive: boolean) {
@@ -217,7 +240,6 @@ export async function installLink(
   link: ManagedLink,
   previous: ManagedLink[],
 ) {
-  // Recheck immediately before unlink; never use recursive removal on a link.
   await assertLink(root, link, previous);
   await mkdir(path.dirname(link.destinationPath), { recursive: true });
   const stat = await statIfPresent(link.destinationPath);
@@ -228,7 +250,17 @@ export async function installLink(
       await readlink(link.destinationPath),
     );
     if (target === path.resolve(link.sourcePath)) return;
-    await unlink(link.destinationPath);
+    if (
+      !previous.some(
+        (entry) =>
+          path.resolve(entry.destinationPath) ===
+            path.resolve(link.destinationPath) &&
+          path.resolve(entry.sourcePath) === target,
+      )
+    ) {
+      conflict(link.destinationPath, "unexpected symlink target is preserved");
+    }
+    await retireLink(root, { ...link, sourcePath: target });
   }
   await symlink(link.sourcePath, link.destinationPath, "dir");
 }
@@ -242,8 +274,82 @@ export async function removeRecordedLink(root: string, link: ManagedLink) {
     await readlink(link.destinationPath),
   );
   if (target !== path.resolve(link.sourcePath)) return false;
-  await unlink(link.destinationPath);
+  await retireLink(root, link);
   return true;
+}
+
+async function retireLink(root: string, link: ManagedLink) {
+  await assertSafePath(root, link.destinationPath);
+  // Atomically move the entry before inspecting it. Checking then unlinking the
+  // original pathname could delete a real file swapped in by an external writer.
+  // Keep the displaced entry as recovery data: never unlink it after a check.
+  const recovery = await mkdtemp(
+    path.join(path.dirname(link.destinationPath), ".ghq-sector-retired-"),
+  );
+  const retained = path.join(recovery, "entry");
+  try {
+    await assertSafePath(root, link.destinationPath);
+    await rename(link.destinationPath, retained);
+  } catch (error) {
+    await rmdir(recovery);
+    throw error;
+  }
+  const stat = await lstat(retained);
+  const target = stat.isSymbolicLink()
+    ? path.resolve(path.dirname(link.destinationPath), await readlink(retained))
+    : null;
+  if (target === path.resolve(link.sourcePath)) return;
+
+  // Restore access without ever overwriting an entry created by another writer.
+  // Files/symlinks use an exclusive hardlink; directories use a recovery symlink.
+  // The retained entry survives either outcome for manual recovery.
+  let restored = false;
+  try {
+    await assertSafePath(root, link.destinationPath);
+    if (stat.isDirectory())
+      await symlink(retained, link.destinationPath, "dir");
+    else await hardlink(retained, link.destinationPath);
+    restored = true;
+  } catch {
+    // EEXIST or a changed parent must not replace the new destination.
+  }
+  conflict(
+    link.destinationPath,
+    `entry changed during sync and was preserved at ${retained}${restored ? "; access restored at the destination" : "; destination left untouched"}`,
+  );
+}
+
+export async function observedOwnedLinks(
+  root: string,
+  desired: ManagedLink[],
+  previous: ManagedLink[],
+) {
+  const observed: ManagedLink[] = [];
+  for (const link of desired) {
+    await assertLink(root, link, previous);
+    const stat = await statIfPresent(link.destinationPath);
+    if (!stat?.isSymbolicLink()) continue;
+    const sourcePath = path.resolve(
+      path.dirname(link.destinationPath),
+      await readlink(link.destinationPath),
+    );
+    if (
+      sourcePath !== path.resolve(link.sourcePath) &&
+      !previous.some(
+        (entry) =>
+          path.resolve(entry.destinationPath) ===
+            path.resolve(link.destinationPath) &&
+          path.resolve(entry.sourcePath) === sourcePath,
+      )
+    ) {
+      conflict(link.destinationPath, "unexpected symlink target is preserved");
+    }
+    observed.push({
+      destinationPath: link.destinationPath,
+      sourcePath,
+    });
+  }
+  return observed;
 }
 
 export async function writeLinkManifest(
