@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/ts-76/ghq-sector/compare/v1.3.0...v1.4.0) (2026-10-03)
+
+
+### Features
+
+* **ui:** show JSON diffs and truthful save and apply states ([#47](https://github.com/ts-76/ghq-sector/issues/47)) ([3b885d3](https://github.com/ts-76/ghq-sector/commit/3b885d309dfb2a1162f832a6b8926a9506b5a72a))
+
+
+### Bug Fixes
+
+* preserve existing workspace and skill destinations ([#44](https://github.com/ts-76/ghq-sector/issues/44)) ([d657654](https://github.com/ts-76/ghq-sector/commit/d65765479add012f88e82c1a07c83e33ed6a7b94))
+* protect local editor request and update boundaries ([#45](https://github.com/ts-76/ghq-sector/issues/45)) ([b500c2d](https://github.com/ts-76/ghq-sector/commit/b500c2d47194c0f8177d2ddb944d91d4081c78b8))
+* refresh dependencies and pause automatic publication ([#39](https://github.com/ts-76/ghq-sector/issues/39)) ([499f1b7](https://github.com/ts-76/ghq-sector/commit/499f1b741ac42b635e084c7b5a0620f7beb0600c))
+* **ui:** preserve JSON drafts across editor actions ([#46](https://github.com/ts-76/ghq-sector/issues/46)) ([b3c9291](https://github.com/ts-76/ghq-sector/commit/b3c9291dd0191ccbe5a4343ca17017995e49831f))
+
 ## [0.1.4](https://github.com/ts-76/ghq-sector/compare/ghq-sector-0.1.3...ghq-sector-0.1.4) (2026-04-11)
 
 
