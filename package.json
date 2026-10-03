@@ -1,6 +1,6 @@
 {
   "name": "ghq-sector",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Node.js CLI for AI-assisted and human-curated ghq workspaces with categorized symlinks, portable config paths, and a local config editor.",
   "license": "MIT",
   "author": "ts-76",
