@@ -578,6 +578,8 @@ async function loadDoctor() {
 
 function appendRepo(repo: Record<string, unknown>, message: string) {
   if (!draftValid || loading || saving || applying) return;
+  successMessage = "";
+  errorMessage = "";
   try {
     const config = getConfigObject();
     if (config.repos !== undefined && !Array.isArray(config.repos))

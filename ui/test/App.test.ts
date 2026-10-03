@@ -42,6 +42,7 @@ let putHandler: (() => Promise<Response>) | undefined;
 let applyHandler: (() => Promise<Response>) | undefined;
 let previewHandler: (() => Promise<Response>) | undefined;
 let configHandler: (() => Promise<Response>) | undefined;
+let doctorHandler: (() => Promise<Response>) | undefined;
 let configReads: number;
 
 function response(body: unknown, status = 200) {
@@ -119,6 +120,7 @@ beforeEach(() => {
   applyHandler = undefined;
   previewHandler = undefined;
   configHandler = undefined;
+  doctorHandler = undefined;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, options?: RequestInit) => {
@@ -156,7 +158,8 @@ beforeEach(() => {
                   : JSON.stringify(serverValue, null, 2),
             });
       }
-      if (url === "/api/doctor") return response({ result: null });
+      if (url === "/api/doctor")
+        return doctorHandler ? doctorHandler() : response({ result: null });
       if (url.startsWith("/api/gh/repos"))
         return response(
           ghAvailable
@@ -255,6 +258,47 @@ describe("JSON draft retention", () => {
         (write) => write.url === "/api/repos" || write.url === "/api/config",
       ),
     ).toBe(false);
+  });
+
+  it("clears a failed save error when a repo is successfully appended", async () => {
+    await start();
+    await click("Raw");
+    putHandler = () => response({ message: "write failed" }, 500);
+    await click("Save config");
+    expect(document.querySelector(".status.error")?.textContent).toBe(
+      "write failed",
+    );
+    await click("Add empty object");
+    expect(document.querySelector(".status.error")).toBeNull();
+    expect(document.querySelector(".status.success")?.textContent).toBe(
+      "added repo template to draft",
+    );
+    expect(JSON.parse(raw()).repos).toHaveLength(1);
+    expect(serverValue).toEqual(original);
+  });
+
+  it("clears the previous operation's success when appending to an invalid config fails", async () => {
+    await start();
+    await click("Raw");
+    const pendingDoctor = deferred();
+    doctorHandler = () => pendingDoctor.promise;
+    await click("Reload");
+    // The file is loaded while Reload still awaits its diagnostics. A new valid
+    // JSON draft can have an invalid repos field without being saved to disk.
+    const draft = { ...original, repos: "invalid repos" };
+    await input("Raw JSON config", JSON.stringify(draft));
+    pendingDoctor.resolve({ result: null });
+    await settle();
+    expect(document.querySelector(".status.success")?.textContent).toContain(
+      "reloaded",
+    );
+    await click("Add empty object");
+    expect(document.querySelector(".status.success")).toBeNull();
+    expect(document.querySelector(".status.error")?.textContent).toBe(
+      "repos must be an array",
+    );
+    expect(JSON.parse(raw())).toEqual(draft);
+    expect(serverValue).toEqual(original);
   });
 
   it("adds a GitHub preset locally without discarding raw changes", async () => {
