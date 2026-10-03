@@ -1,6 +1,8 @@
 export interface JsonSchema {
   type: string;
   description?: string;
+  enum?: string[];
+  examples?: string[];
   required?: string[];
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
@@ -208,6 +210,7 @@ export function buildJsonSchema(): JsonSchema {
               "Limit agent skill syncing to specific providers. Supported values are agents and claude.",
             items: {
               type: "string",
+              enum: ["agents", "claude"],
               description: "One agent skill provider to scan and sync.",
             },
           },
