@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "908101e122bce7aa60d72cdb4683d832cbcbd5b6",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "ghq-sector",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true
+    }
+  }
+}
