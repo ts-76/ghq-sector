@@ -117,6 +117,8 @@ export async function createEditServer(options: {
   const configPath = await realpath(options.configPath);
   let origin = "";
   const httpServer = createServer(async (request, response) => {
+    response.setHeader("content-security-policy", "frame-ancestors 'none'");
+    response.setHeader("x-frame-options", "DENY");
     try {
       await handleRequest(request, response, {
         ...options,

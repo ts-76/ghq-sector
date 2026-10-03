@@ -321,6 +321,39 @@ describe("apply workflow", () => {
     );
   });
 
+  it("reports links failure when the second config load fails after repos completed", async () => {
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    const configPath = path.join(root, "config.json");
+    const loadConfig = vi
+      .fn()
+      .mockResolvedValueOnce({ path: configPath, config })
+      .mockRejectedValueOnce(new Error("external edit made config unreadable"));
+    vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
+    vi.doMock("../src/config/machine-paths.js", () => ({
+      getRuntimePaths: vi.fn(async () => ({
+        resolvedGhqRoot: config.ghqRoot,
+        resolvedWorkspaceRoot: config.workspaceRoot,
+      })),
+    }));
+    const ensureRepos = vi.fn(async () => ({
+      fetched: [],
+      alreadyPresent: [],
+    }));
+    vi.doMock("../src/ghq/ensure-repos.js", () => ({ ensureRepos }));
+    const { runApply } = await importFresh<
+      typeof import("../src/commands/apply.js")
+    >("../src/commands/apply.js");
+    await expect(runApply(configPath)).rejects.toMatchObject({
+      progress: {
+        completed: ["prepare", "repos"],
+        failedStage: "links",
+      },
+    });
+    expect(loadConfig).toHaveBeenCalledTimes(2);
+    expect(ensureRepos).toHaveBeenCalledTimes(1);
+  });
+
   it("ghq gets only missing repos in ensureRepos and runs clone hooks around them", async () => {
     const root = await makeTempRoot();
     const config = createConfig(root);

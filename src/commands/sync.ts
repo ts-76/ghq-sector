@@ -37,12 +37,12 @@ export async function runSync(
   runtimeConfig?: GhqWsConfig,
   report?: ApplyProgressReporter,
 ): Promise<RunSyncResult> {
+  report?.("links", false);
   const loaded = await loadConfig(cwd);
   info(`loaded config: ${loaded.path}`);
 
   const config =
     runtimeConfig ?? (await resolveConfigForCurrentMachine(loaded.config));
-  report?.("links", false);
   const result = await syncWorkspace(config);
   report?.("links", true);
   report?.("resources", false);
