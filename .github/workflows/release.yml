@@ -137,12 +137,15 @@ jobs:
           name: ghq-sector-1.4.0-${{ github.run_id }}-${{ github.run_attempt }}
           path: npm-stage-artifact/
       - name: Install locked official publisher without scripts
-        run: >-
-          env -i PATH="$PATH" HOME="$RUNNER_TEMP"
-          npm ci --prefix tools/publisher --ignore-scripts --no-audit --no-fund
-          --registry=https://registry.npmjs.org/ --userconfig=/dev/null --globalconfig=/dev/null
-          --cache="$RUNNER_TEMP/ghq-sector-publisher-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}"
-          --proxy=null --https-proxy=null --fetch-retries=0
+        run: |
+          bootstrap_dir="$(mktemp -d "$RUNNER_TEMP/ghq-sector-publisher-bootstrap.XXXXXX")"
+          : > "$bootstrap_dir/user.npmrc"
+          : > "$bootstrap_dir/global.npmrc"
+          env -i PATH="$PATH" HOME="$bootstrap_dir" \
+            npm ci --prefix tools/publisher --ignore-scripts --no-audit --no-fund \
+            --registry=https://registry.npmjs.org/ \
+            --userconfig="$bootstrap_dir/user.npmrc" --globalconfig="$bootstrap_dir/global.npmrc" \
+            --cache="$bootstrap_dir/cache" --proxy=null --https-proxy=null --fetch-retries=0
       - name: Check scope and submit exact artifact with OIDC and provenance
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -147,7 +147,14 @@ describe("one-off npm staging", () => {
     );
     expect(install.run).toContain("env -i");
     expect(install.run).toContain("--ignore-scripts");
-    expect(install.run).toContain("--userconfig=/dev/null");
+    expect(install.run).toContain(
+      'mktemp -d "$RUNNER_TEMP/ghq-sector-publisher-bootstrap.XXXXXX"',
+    );
+    expect(install.run).toContain('--userconfig="$bootstrap_dir/user.npmrc"');
+    expect(install.run).toContain(
+      '--globalconfig="$bootstrap_dir/global.npmrc"',
+    );
+    expect(install.run).not.toContain("/dev/null");
     expect(workflow.jobs.verify.permissions?.["id-token"]).toBeUndefined();
     const upload = workflow.jobs.verify.steps.find(
       (step: { uses?: string }) => step.uses === "actions/upload-artifact@v4",
