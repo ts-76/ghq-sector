@@ -1,0 +1,7 @@
+{
+  "name": "ghq-sector-one-off-publisher",
+  "private": true,
+  "dependencies": {
+    "npm": "12.2.0"
+  }
+}

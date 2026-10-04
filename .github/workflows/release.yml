@@ -1,14 +1,27 @@
 name: Release
 
-# Publication is intentionally disabled pending an audited npm publisher.
-# This workflow can verify main and maintain release PRs, but cannot create
-# tags/GitHub releases or publish packages. Restore publication in a reviewed PR.
+# Automatic publication and tag creation remain disabled.
+# A separately approved manual path can stage only ghq-sector 1.4.0.
+# The package owner must complete publication with npm 2FA.
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      prepare_npm_stage:
+        description: Prepare the reviewed ghq-sector 1.4.0 npm stage
+        type: boolean
+        default: false
+      expected_sha:
+        description: Exact reviewed main SHA (required for stage preparation)
+        type: string
+        default: ''
+      publisher_risk_consent:
+        description: Accept the documented 1.4.0-only npm publisher risks
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,11 +32,12 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPECTED_RELEASE_SHA: ${{ inputs.expected_sha }}
 
 jobs:
   release-pr:
     needs: verify
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !(github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -42,7 +56,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: 24.19.0
       - name: Install audited release tooling
         run: bun install --frozen-lockfile
       - name: Audit release tooling
@@ -68,7 +82,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: 24.19.0
+      - name: Reject changed source before stage preparation
+        if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
+        run: node -e 'if (!/^[a-f0-9]{40}$/.test(process.env.EXPECTED_RELEASE_SHA || "") || process.env.EXPECTED_RELEASE_SHA !== process.env.GITHUB_SHA) process.exit(1)'
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Install UI dependencies
@@ -81,9 +98,62 @@ jobs:
         run: |
           bun run typecheck
           bun run --cwd ui typecheck
+          bun run --cwd ui check
       - name: Test
         run: bun run test
       - name: Build
         run: bun run build
       - name: Check package tarball
         run: bun run pack:check
+      - name: Pack accepted artifact once
+        if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
+        run: node scripts/npm-stage.mjs prepare
+      - name: Retain accepted artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghq-sector-1.4.0-${{ github.run_id }}-${{ github.run_attempt }}
+          path: npm-stage-artifact/
+          if-no-files-found: error
+
+  stage:
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage && github.ref == 'refs/heads/main' && vars.GHQ_SECTOR_STAGING_ENABLED == 'true' && inputs.publisher_risk_consent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-stage
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ghq-sector-1.4.0-${{ github.run_id }}-${{ github.run_attempt }}
+          path: npm-stage-artifact/
+      - name: Install locked official publisher without scripts
+        run: >-
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP"
+          npm ci --prefix tools/publisher --ignore-scripts --no-audit --no-fund
+          --registry=https://registry.npmjs.org/ --userconfig=/dev/null --globalconfig=/dev/null
+          --cache="$RUNNER_TEMP/ghq-sector-publisher-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}"
+          --proxy=null --https-proxy=null --fetch-retries=0
+      - name: Check scope and submit exact artifact with OIDC and provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GHQ_SECTOR_STAGING_ENABLED: ${{ vars.GHQ_SECTOR_STAGING_ENABLED }}
+          PUBLISHER_RISK_CONSENT: ${{ inputs.publisher_risk_consent }}
+        run: node scripts/npm-stage.mjs stage
+      - name: Retain raw audit and stage receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghq-sector-stage-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            publisher-audit.json
+            npm-stage-receipt.json
