@@ -39,5 +39,9 @@
     "npm-registry-fetch",
     "pacote",
     "sigstore"
-  ]
+  ],
+  "artifact": {
+    "sha256": "4e397782bed9c417e1d62a316977888fecb2930035c00ad5eed75522c4cabc06",
+    "integrity": "sha512-+/BBD1SJIvnpcjWaBgeBpIn/wim4INS4OTKqcV6yZJn/aGDUF/FluHg0PWYBTL23/UXhQZBm+R5Z3dXkpWUdhA=="
+  }
 }

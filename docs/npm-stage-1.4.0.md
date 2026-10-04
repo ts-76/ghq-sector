@@ -52,12 +52,20 @@ set it true only after accepting the documented one-version risks. The verify
 job runs full audits, lint, types, Svelte checks, tests, build and pack validation,
 then creates one artifact. Stage downloads that same run/attempt's artifact;
 it never rebuilds or repacks. Source SHA, version, SHA256 and SHA512 integrity
-are checked before submission, and current main must still match. Changed
+are checked before submission, and current main must still match. The original
+accepted tarball's SHA256 is also pinned in risk-scope.json:
+`4e397782bed9c417e1d62a316977888fecb2930035c00ad5eed75522c4cabc06`.
+Local preparation reproduced both its exact bytes and seven file contents.
+A CI build producing different bytes fails rather than silently replacing it. Changed
 source or an earlier attempt fails. Node and npm versions are pinned.
 
 Publishing uses scripts disabled, a new initially empty cache, explicit empty
 user/global npm configs, a token/proxy-free environment apart from Actions
-OIDC, fixed npm registry, provenance enabled and retries disabled. Necessary
+OIDC, fixed npm registry, provenance enabled and registry retries disabled.
+Sigstore's GitHub OIDC helper independently allows two retries; npm's
+fetch-retries option does not override that helper. Library redirect handling
+also remains enabled. These authenticated/signing paths have only been
+inspected statically and are included in the one-version risk decision. Necessary
 OIDC/registry/Sigstore traffic is real; the offline fixture's complete network
 block cannot be retained. Live OIDC/provenance success remains unverified until
 an authorized stage run completes.

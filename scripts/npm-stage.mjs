@@ -106,6 +106,16 @@ export function requireEvidence(evidence, inspected, runId, runAttempt) {
 
 export async function inspectArtifact(tarball, sourceSha) {
   const bytes = await readFile(tarball);
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    policy.artifact.sha256,
+    "Tarball differs from the accepted 1.4.0 artifact",
+  );
+  assert.equal(
+    `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    policy.artifact.integrity,
+    "Tarball integrity differs from acceptance",
+  );
   const manifest = JSON.parse(
     execFileSync("tar", ["-xOf", tarball, "package/package.json"], {
       encoding: "utf8",
