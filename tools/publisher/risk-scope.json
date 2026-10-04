@@ -1,0 +1,43 @@
+{
+  "version": "1.4.0",
+  "npmVersion": "12.2.0",
+  "packages": {
+    "http-cache-semantics": "4.2.0",
+    "brace-expansion": "5.0.9",
+    "ip-address": "10.5.0",
+    "undici": "6.28.0"
+  },
+  "advisories": [
+    "GHSA-ch52-4w7c-c8xp",
+    "GHSA-q2hr-2g5m-vwhr",
+    "GHSA-qhr7-859c-m2p7",
+    "GHSA-6j4f-fj2g-mc7p",
+    "GHSA-rpw4-54j3-4h4q",
+    "GHSA-2vr4-cq9g-pvrc",
+    "GHSA-j6r3-76f7-8jcv",
+    "GHSA-h3mg-xc3c-68pw",
+    "GHSA-3wwx-pv8p-q78v",
+    "GHSA-r53p-7pc4-xj5r",
+    "GHSA-rfgv-xxqx-mfg5"
+  ],
+  "propagated": [
+    "@npmcli/arborist",
+    "@npmcli/metavuln-calculator",
+    "@sigstore/sign",
+    "libnpmaccess",
+    "libnpmdiff",
+    "libnpmexec",
+    "libnpmfund",
+    "libnpmorg",
+    "libnpmpack",
+    "libnpmpublish",
+    "libnpmsearch",
+    "libnpmteam",
+    "make-fetch-happen",
+    "npm",
+    "npm-profile",
+    "npm-registry-fetch",
+    "pacote",
+    "sigstore"
+  ]
+}

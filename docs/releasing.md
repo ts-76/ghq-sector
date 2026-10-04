@@ -7,11 +7,17 @@ commit is the existing v1.3.0 commit, so older changes are not proposed again.
 
 **Automatic GitHub tags/releases and npm publication are disabled.** The user
 chose to land dependency updates first without an unauditable publishing tool.
-The workflow has only `verify` and `release-pr` jobs, and no OIDC permission.
+The normal flow has `verify` and `release-pr` jobs without OIDC permission.
+A separate manual stage job can receive OIDC after owner approval.
 Merging a release PR can update version/changelog files, but creates no tag or
 published package. Review release PRs as proposals; restore publication in a
 separate reviewed change before using them to release a version. Nothing here
 changes npm trusted publisher settings or creates credentials.
+
+The optional [manual 1.4.0 staging proposal](npm-stage-1.4.0.md) is separate
+from this automatic flow. It requires owner review, explicit version-scoped
+publisher risk consent and a protected environment. It uses the existing
+ghq-sector npm Trusted Publisher identity. It does not restore automatic tags/releases or publication.
 
 ## Verification and review
 
@@ -27,7 +33,7 @@ workflows for PRs created with this token. Before reviewing or merging such a PR
 dispatch **CI** and **Security** on its branch and inspect their final results.
 No personal token is added to trigger CI. `release-control.mjs release` rejects
 execution before constructing a GitHub client, including on main in Actions;
-the former tag/release helper and publishing CLI are removed.
+the former tag/release helper remains disabled.
 
 ## Local acceptance
 
@@ -47,9 +53,10 @@ bun run pack:check
 ```
 
 `bun run audit` checks the root Bun tree, UI Bun tree and root npm lockfile at the
-existing moderate threshold, including the release tooling. No advisory is
-ignored. There is no installed or runnable project-owned npm publisher to omit
-from these audits.
+existing moderate threshold, including the release tooling. No application or release-PR advisory is
+ignored. The separately locked stage publisher is audited against its actual
+installed tree by the stage job, with raw findings retained and explicit
+1.4.0-only owner consent required for the documented risks.
 
 `pack:check` uses `bun pm pack --ignore-scripts` into a temporary directory. It
 checks the actual tarball manifest/version, both CLI bin aliases, the built CLI,
@@ -76,10 +83,11 @@ age at verification time; it was tested in an isolated research directory and
 was not promoted to the project. Rebuilding or forking npm would still need a
 reviewed fix for the unpatched dependency and is not part of this change.
 
-A future publication PR must introduce an audited publisher, lock and audit the
+Any publication path must lock and audit the
 actual executed dependency tree, test package creation and release recovery,
-verify tags are bound to the checked SHA/version, and preserve the existing
-trusted publisher workflow identity without adding tokens or permissions.
+bind artifacts to the checked SHA/version, and preserve the existing
+trusted publisher workflow identity. The optional one-off path documents the
+remaining CLI risks and gates new OIDC access on owner approval.
 Keep all acceptance/audit gates before any tag or publication. Restoring a
 publisher is an explicit implementation change; ordinary main or release-PR
 merges cannot enable it.

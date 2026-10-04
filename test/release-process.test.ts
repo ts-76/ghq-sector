@@ -33,19 +33,21 @@ describe("release migration", () => {
     );
   });
 
-  it("only maintains release PRs after verification, without OIDC or publishing jobs", async () => {
+  it("keeps normal releases paused and grants OIDC only to the manual stage job", async () => {
     const workflow = YAML.parse(
       await readFile(".github/workflows/release.yml", "utf8"),
     );
-    expect(Object.keys(workflow.jobs).sort()).toEqual(["release-pr", "verify"]);
+    expect(Object.keys(workflow.jobs).sort()).toEqual([
+      "release-pr",
+      "stage",
+      "verify",
+    ]);
     expect(workflow.jobs["release-pr"].needs).toBe("verify");
     expect(workflow.jobs["release-pr"].if).toBe(
-      "github.ref == 'refs/heads/main'",
+      "github.ref == 'refs/heads/main' && !(github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage)",
     );
     expect(workflow.permissions).toEqual({ contents: "read" });
-    for (const job of Object.values(workflow.jobs) as {
-      permissions?: Record<string, string>;
-    }[]) {
+    for (const job of [workflow.jobs.verify, workflow.jobs["release-pr"]]) {
       expect(job.permissions?.["id-token"]).toBeUndefined();
     }
     expect(workflow.jobs["release-pr"].steps.at(-1).run).toBe(
