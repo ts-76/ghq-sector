@@ -22,6 +22,13 @@ Static inspection of npm's authentication and signing source shows no cachePath
 on the OIDC token GET/signing fetch, POST for token exchange and stage upload,
 and GET/HEAD-only caching in make-fetch-happen. This reduces applicability of
 the cache advisory to those paths but is not live authentication evidence.
+An additional isolated probe executed npm's OIDC helper, token-exchange call,
+Sigstore's GitHub token helper and provenance-payload generation with synthetic
+credentials and mocked transport/signing. It confirmed the npm/sigstore
+audiences, POST exchange scoped to ghq-sector, no cachePath on token GETs,
+Sigstore's independent two retries, and source/workflow/artifact bindings in
+the payload. Real tokens, certificates, signature validation and upload were
+not exercised by this probe.
 The HTTP-cache advisory is disputed by its maintainer and remains in GitHub's
 database. http-cache-semantics 4.3.0 does not change the max-stale path.
 
