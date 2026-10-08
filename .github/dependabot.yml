@@ -1,0 +1,37 @@
+# Security updates stay enabled in repository settings. This file only
+# customizes /tools/publisher. npm@12.2.0 (the latest release) bundles
+# undici, ip-address, brace-expansion, and http-cache-semantics with
+# inBundle: true, so Dependabot cannot patch them and reports
+# security_update_not_possible / dependency_still_vulnerable. The accepted
+# versions are recorded in tools/publisher/risk-scope.json and checked by
+# scripts/npm-stage.mjs. See docs/npm-stage-1.4.0.md.
+#
+# ignore applies to security updates and version updates. update-types is
+# not used: it does not suppress security updates. The direct "npm"
+# dependency is not ignored, so a version-update pull request is still
+# opened when a newer npm release is published. No target-branch is set,
+# which is required for this entry to apply to security updates.
+#
+# Root npm (package-lock.json), Bun locks (bun.lock at / and /ui), and
+# GitHub Actions are omitted on purpose. They are not covered by this
+# entry, so their existing security updates keep the repository default
+# and version updates stay off. Listing them would start version updates.
+#
+# Remove an ignore once a newer npm release bundles a fixed copy:
+#   undici >= 6.28.1
+#   ip-address >= 10.7.1
+#   brace-expansion >= 5.0.12
+# Keep http-cache-semantics ignored until its bundled copy leaves the
+# accepted set in risk-scope.json (4.3.0 does not fix GHSA-ch52-4w7c-c8xp).
+# Upstream bundling work: npm/cli#10088 and npm/cli#10089.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/tools/publisher"
+    schedule:
+      interval: "daily"
+    ignore:
+      - dependency-name: "undici"
+      - dependency-name: "ip-address"
+      - dependency-name: "brace-expansion"
+      - dependency-name: "http-cache-semantics"
