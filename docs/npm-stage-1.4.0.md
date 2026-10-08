@@ -15,6 +15,19 @@ that count change. The complete, version-specific scope is recorded in
 `tools/publisher/risk-scope.json`, with the official npm tarball's integrity in
 its separate lockfile. No project advisory is suppressed.
 
+Dependabot cannot replace those bundled copies while `npm@12.2.0` is current,
+so security-update jobs for this directory fail with
+`security_update_not_possible` / `dependency_still_vulnerable`.
+`.github/dependabot.yml` ignores `undici`, `ip-address`, `brace-expansion`,
+and `http-cache-semantics` for `/tools/publisher` only, and still requests
+version updates for the direct `npm` dependency. Dependabot alerts are
+unchanged. Root npm, the Bun locks, and GitHub Actions are not listed, so
+their security updates keep the repository default and version updates stay
+off. Remove an ignore once a newer npm release bundles a fixed copy:
+`undici` >= 6.28.1, `ip-address` >= 10.7.1, or `brace-expansion` >= 5.0.12.
+Keep ignoring `http-cache-semantics` until that bundled copy leaves this
+accepted set. Upstream bundling work is npm/cli#10088 and npm/cli#10089.
+
 Credential-free dry-runs of publish and stage publish passed on Node 24.19.0
 using a fixed verified tarball, scripts disabled, fresh caches, no proxy and
 mocked metadata. Neither exercised OIDC, provenance signing or actual upload.
