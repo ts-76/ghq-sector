@@ -36,7 +36,7 @@ symlink ベースの workspace は単純で分かりやすい一方、symlink �
 
 ## 必要環境
 
-- Node.js 20+
+- Node.js 20.19.0 以上
 - `ghq`
 - `gh`（editor の GitHub repository suggestion や shorthand owner 解決で使用）
 
@@ -158,7 +158,7 @@ gsec sync
 
 Sync は repository と skill のリンク計画全体を、リンク変更前に検査します。`workspaceRoot` 外の宛先、workspace 内の親 symlink、重複・包含関係にあるリンク宛先、実ファイル・実ディレクトリ（空を含む）との衝突を拒否し、保護したパスと理由を表示します。`workspaceRoot` は実ディレクトリを指定してください。root 自体が symlink の場合は、その実体のパスを指定します。
 
-設定された source をすでに指すリンクは、source が存在しない壊れたリンクも含めて保持します。別のリンク先へ更新できるのは、現在のリンク先が `.ghq-sector/repo-links-manifest.json` または `agent-skills-manifest.json` に記録された source と一致する場合だけです。想定外のリンクは変更しません。不要になった skill は、記録された宛先と実際のリンク先が一致する symlink だけを削除し、リンク先の実体や実ファイル・ディレクトリを再帰削除しません。従来のパスだけの skill manifest では管理対象と確認できないため、不要なエントリーは手動確認用に保持します。衝突するエントリーの移動または設定の変更後に Sync / Apply を再実行してください。この保護の対象は管理リンクとその metadata です。設定済み resources のコピーと hooks のコマンド実行は引き続き設定どおりに行います。
+設定された source をすでに指すリンクは、source が存在しない壊れたリンクも含めて保持します。別のリンク先へ更新できるのは、現在のリンク先が `.ghq-sector/repo-links-manifest.json` または `agent-skills-manifest.json` に記録された source と一致する場合だけです。設定から外したリポジトリと不要になったスキルは、記録された宛先と実際のリンク先が一致する symlink を復旧用に退避します。従来のパスだけの skill manifest では管理対象と確認できないため、不要なエントリーは手動確認用に保持します。衝突するエントリーの移動または設定の変更後に Sync / Apply を再実行してください。この保護の対象は管理リンクとその metadata です。設定済み resources のコピーと hooks のコマンド実行は引き続き設定どおりに行います。
 
 設定した repo の source が存在しない場合、既存の管理リンクが実際に指す source を manifest に保持します。存在しない変更予定の source に管理権限を与える記録は作りません。大文字・小文字の区別は workspace のボリューム内に一時ディレクトリを作って検査し、すぐに片付けます。
 
@@ -202,6 +202,7 @@ gsec clone github.com/owner/repo --provider github.com
 ### `gsec doctor`
 
 環境、config、resource path、workspace の状態を検証します。
+GitHub の認証状態を取得できない場合は、警告を表示してローカルの診断を続けます。
 
 ```bash
 gsec doctor
@@ -237,6 +238,8 @@ editor の bind は `127.0.0.1` / `::1` / `localhost` のみです。`0.0.0.0` �
 Save / Preview / Apply / repo ドラフト提案は UTF-8 の `application/json`、最大 1 MiB です。不正 JSON・schema は 400、サイズ超過は 413、Content-Type 不一致は 415 を返します。repo 提案は `{config: currentDraft, repo: optionalRepo}` を受け、ファイル保存せずドラフトを返します。Save / Apply 中は同じ設定への競合 API に 409 busy を返します。設定に隣接する `<config-file>.editor-lock` を排他的に作成し、別プロセス・別ポートの編集サーバー間でも保護します。外部 CLI や手動ファイル編集は含みません。異常終了で残った lease は、記録された PID が停止済みか確認してから、その lease ファイルだけを手動で削除してください。既存 lease を自動削除しません。
 
 Apply 途中失敗は内部例外の詳細を伏せ、完了した stage と失敗 stage、`configSaved` を返します。失敗 stage は一部を変更済みの場合があり、完了した操作を巻き戻しません。workspace と Doctor の結果を確認してから hooks / Apply を再実行してください。
+
+Save / Apply では、`GET /api/config` で取得した設定のリビジョンを `If-Match` に指定します。指定がない場合は `428`、保存済みの設定が変わっている場合は `412` を返します。編集画面は競合を表示し、編集中の内容を保持します。Preview は設定上のリンク先の重複を表示し、Apply は保存前にワークスペースの実体も確認します。
 
 ## Config file
 

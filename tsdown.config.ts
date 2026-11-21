@@ -10,5 +10,4 @@ export default defineConfig({
   dts: false,
   shims: false,
   platform: "node",
-  external: [],
 });

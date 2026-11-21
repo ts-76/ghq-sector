@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "ignorePatterns": ["**/*.md", "**/package-lock.json"],
+  "svelte": {
+    "indentScriptAndStyle": false,
+    "sortOrder": "none"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.yml", "**/*.yaml"],
+      "options": { "singleQuote": true }
+    }
+  ]
+}

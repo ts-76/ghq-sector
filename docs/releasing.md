@@ -43,7 +43,7 @@ scanner and three-day minimum release age. No global manager changes are needed.
 ```sh
 bun install --frozen-lockfile
 bun install --cwd ui --frozen-lockfile
-bun run lint
+bun run check
 bun run typecheck
 bun run --cwd ui typecheck
 bun run test
@@ -51,6 +51,8 @@ bun run build
 bun run audit
 bun run pack:check
 ```
+
+Run `bun run fmt` to apply formatting locally.
 
 `bun run audit` checks the root Bun tree, UI Bun tree and root npm lockfile at the
 existing moderate threshold, including the release tooling. No application or release-PR advisory is
@@ -62,8 +64,9 @@ installed tree by the stage job, with raw findings retained and explicit
 checks the actual tarball manifest/version, both CLI bin aliases, the built CLI,
 UI index/assets and LICENSE, then removes the temporary tarball. It removes npm
 and OIDC credentials from the packaging subprocess environment and never calls
-a publish command. This is a package-content check, not a publish/authentication
-dry run. Actual npm OIDC authentication remains untested.
+a publish command. CI runs it with `--consumer` on the minimum supported Node.js
+version to install the tarball with strict engine checks and start the CLI.
+Actual npm OIDC authentication remains untested.
 
 ## Why publication remains disabled (2026-10-03)
 

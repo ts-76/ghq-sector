@@ -3,8 +3,8 @@ import path from "node:path";
 import { loadConfig } from "../config/load-config.js";
 import { getRuntimePaths } from "../config/machine-paths.js";
 import type { GhqWsConfig } from "../config/schema.js";
-import { hasGh, listGhOwnerCandidates } from "../shared/gh.js";
-import { getGhqRoot, hasGhq } from "../shared/ghq.js";
+import { listGhOwnerCandidates } from "../shared/gh.js";
+import { getGhqRoot } from "../shared/ghq.js";
 import { info, success, warn } from "../shared/logger.js";
 import {
   getRepoDestinationPath,
@@ -63,24 +63,19 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
     info(text);
   };
 
-  const ghqAvailable = await hasGhq();
-  if (!ghqAvailable) {
+  const detectedGhqRoot = await getGhqRoot().catch(() => {
     throw new Error("ghq command is not available");
-  }
-
-  const ghAvailable = await hasGh();
-  if (!ghAvailable) {
-    throw new Error("gh command is not available");
-  }
-
-  const detectedGhqRoot = await getGhqRoot();
+  });
+  const ghAccounts = await listGhOwnerCandidates().catch(() => null);
+  const ownerCandidates = ghAccounts ?? [];
   push("success", "ghq", `ok (${detectedGhqRoot})`);
 
-  const ownerCandidates = await listGhOwnerCandidates();
   push(
-    "success",
+    ghAccounts ? "success" : "warn",
     "gh",
-    `ok (${ownerCandidates.length} github.com account${ownerCandidates.length === 1 ? "" : "s"})`,
+    ghAccounts
+      ? `ok (${ownerCandidates.length} github.com account${ownerCandidates.length === 1 ? "" : "s"})`
+      : "GitHub authentication status unavailable",
   );
   if (ownerCandidates.length > 0) {
     push(
@@ -251,48 +246,20 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
 
     for (const repo of config.repos) {
       const label = `${repo.provider}/${repo.owner}/${repo.name}`;
-      const destination = getRepoDestinationPath(workspaceRoot, repo);
-
-      try {
-        const stats = await lstat(destination);
-        if (!stats.isSymbolicLink()) {
-          push("warn", `link ${label}`, `not a symlink (${destination})`);
-          continue;
-        }
-
-        const target = await readlink(destination);
-        push("success", `link ${label}`, `ok (${destination} -> ${target})`);
-      } catch {
-        push("warn", `link ${label}`, `missing (${destination})`);
-      }
+      const { level, message } = await checkLink(
+        getRepoDestinationPath(workspaceRoot, repo),
+        getRepoSourcePath(runtimePaths.resolvedGhqRoot, repo),
+      );
+      push(level, `link ${label}`, message);
     }
 
     if (enabledAgentSkillProviders.length > 0) {
       for (const skill of agentSkillsPlan.selected) {
-        try {
-          const stats = await lstat(skill.destinationPath);
-          if (!stats.isSymbolicLink()) {
-            push(
-              "warn",
-              `agent skill link .${skill.provider}`,
-              `not a symlink (${skill.destinationPath})`,
-            );
-            continue;
-          }
-
-          const target = await readlink(skill.destinationPath);
-          push(
-            "success",
-            `agent skill link .${skill.provider}`,
-            `ok (${skill.destinationPath} -> ${target})`,
-          );
-        } catch {
-          push(
-            "warn",
-            `agent skill link .${skill.provider}`,
-            `missing (${skill.destinationPath})`,
-          );
-        }
+        const { level, message } = await checkLink(
+          skill.destinationPath,
+          skill.sourcePath,
+        );
+        push(level, `agent skill link .${skill.provider}`, message);
       }
 
       const reportPaths = [
@@ -330,6 +297,29 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorResult> {
     },
     accounts: ownerCandidates,
   };
+}
+
+async function checkLink(
+  destination: string,
+  source: string,
+): Promise<Pick<DoctorCheck, "level" | "message">> {
+  try {
+    if (!(await lstat(destination)).isSymbolicLink())
+      return { level: "warn", message: `not a symlink (${destination})` };
+
+    const target = await readlink(destination);
+    const resolvedTarget = path.resolve(path.dirname(destination), target);
+    const expected = path.resolve(source);
+    if (resolvedTarget !== expected)
+      return {
+        level: "warn",
+        message: `unexpected target (${destination} -> ${resolvedTarget}; expected ${expected})`,
+      };
+
+    return { level: "success", message: `ok (${destination} -> ${target})` };
+  } catch {
+    return { level: "warn", message: `missing (${destination})` };
+  }
 }
 
 function checkDefaults(

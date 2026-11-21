@@ -14,6 +14,7 @@ const CONFIG_CANDIDATES = [
 export interface LoadedConfig {
   path: string;
   config: GhqWsConfig;
+  raw: string;
 }
 
 export async function loadConfig(cwd = process.cwd()): Promise<LoadedConfig> {
@@ -58,7 +59,7 @@ async function loadConfigFile(
     const raw = await readFile(configPath, "utf8");
     const parsed = isJson ? JSON.parse(raw) : YAML.parse(raw);
     const config = parseConfig(parsed);
-    return { path: configPath, config };
+    return { path: configPath, config, raw };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;

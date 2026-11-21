@@ -14,9 +14,14 @@ import {
   assertLink,
   assertLinkDirectories,
   assertMetadataFile,
+  assertSafePath,
+  destinationKey,
   installLink,
+  type ManagedLink,
   observedOwnedLinks,
   readLinkManifest,
+  removeRecordedLink,
+  statIfPresent,
   usesCaseInsensitivePaths,
   withWorkspaceSyncLease,
   writeLinkManifest,
@@ -54,24 +59,15 @@ export async function syncWorkspace(
   );
 }
 
-async function syncWorkspaceWithLease(
+export function assertWorkspaceLinkLayout(
   config: GhqWsConfig,
-): Promise<SyncWorkspaceResult> {
+  links: ManagedLink[],
+  caseInsensitive = false,
+) {
   const workspaceRoot = config.workspaceRoot;
-  const ghqRoot = config.ghqRoot;
-  const linked: string[] = [];
-  const skipped: string[] = [];
-
-  const links = config.repos.map((repo) => ({
-    sourcePath: getRepoSourcePath(ghqRoot, repo),
-    destinationPath: getRepoDestinationPath(workspaceRoot, repo),
-  }));
-  const agentSkillPlan = await planAgentSkills(config);
-  const allLinks = [...links, ...agentSkillPlan.selected];
-  const caseInsensitive = await usesCaseInsensitivePaths(workspaceRoot);
   assertDistinctLinks(
     [
-      ...allLinks,
+      ...links,
       ...[
         "repo-links-manifest.json",
         "agent-skills-manifest.json",
@@ -89,17 +85,29 @@ async function syncWorkspaceWithLease(
     caseInsensitive,
   );
   assertLinkDirectories(
-    allLinks,
+    links,
     [
       ...config.categories.map((category) =>
         path.join(workspaceRoot, category),
       ),
-      ...allLinks.map((link) => path.dirname(link.destinationPath)),
+      ...links.map((link) => path.dirname(link.destinationPath)),
       path.join(workspaceRoot, ".ghq-sector"),
     ],
     caseInsensitive,
   );
+}
+
+export async function prepareWorkspaceSync(config: GhqWsConfig) {
+  const { workspaceRoot, ghqRoot } = config;
+  const links = config.repos.map((repo) => ({
+    sourcePath: getRepoSourcePath(ghqRoot, repo),
+    destinationPath: getRepoDestinationPath(workspaceRoot, repo),
+  }));
+  const agentSkillPlan = await planAgentSkills(config);
+  const allLinks = [...links, ...agentSkillPlan.selected];
   await assertDirectory(workspaceRoot, workspaceRoot);
+  const caseInsensitive = await usesCaseInsensitivePaths(workspaceRoot);
+  assertWorkspaceLinkLayout(config, allLinks, caseInsensitive);
   const manifestPath = path.join(
     workspaceRoot,
     ".ghq-sector",
@@ -109,12 +117,54 @@ async function syncWorkspaceWithLease(
   const previous = await readLinkManifest(manifestPath);
   for (const category of config.categories)
     await assertDirectory(workspaceRoot, path.join(workspaceRoot, category));
-  for (const link of links) await assertLink(workspaceRoot, link, previous);
+  for (const link of links)
+    await assertLink(workspaceRoot, link, previous, caseInsensitive);
+  const desired = new Set(
+    links.map((link) => destinationKey(link.destinationPath, caseInsensitive)),
+  );
+  const staleRepos = previous.filter(
+    (link) =>
+      !desired.has(destinationKey(link.destinationPath, caseInsensitive)),
+  );
+  for (const link of staleRepos)
+    await assertSafePath(workspaceRoot, link.destinationPath);
   const preparedSkills = await prepareAgentSkillsSync(
     workspaceRoot,
     agentSkillPlan,
+    caseInsensitive,
   );
-  assertDistinctLinks([...allLinks, ...preparedSkills.stale], caseInsensitive);
+  if (staleRepos.length || preparedSkills.stale.length)
+    assertWorkspaceLinkLayout(
+      config,
+      [...allLinks, ...staleRepos, ...preparedSkills.stale],
+      caseInsensitive,
+    );
+  return {
+    links,
+    manifestPath,
+    previous,
+    agentSkillPlan,
+    preparedSkills,
+    staleRepos,
+    caseInsensitive,
+  };
+}
+
+async function syncWorkspaceWithLease(
+  config: GhqWsConfig,
+): Promise<SyncWorkspaceResult> {
+  const { workspaceRoot, ghqRoot } = config;
+  const linked: string[] = [];
+  const skipped: string[] = [];
+  const {
+    links,
+    manifestPath,
+    previous,
+    agentSkillPlan,
+    preparedSkills,
+    staleRepos,
+    caseInsensitive,
+  } = await prepareWorkspaceSync(config);
   // All destinations (including missing sources and skills) are validated first.
   await mkdir(workspaceRoot, { recursive: true });
   for (const category of config.categories)
@@ -132,7 +182,12 @@ async function syncWorkspaceWithLease(
       continue;
     }
 
-    await installLink(workspaceRoot, { sourcePath, destinationPath }, previous);
+    await installLink(
+      workspaceRoot,
+      { sourcePath, destinationPath },
+      previous,
+      caseInsensitive,
+    );
     linked.push(destinationPath);
 
     await runHooks(config.hooks?.afterLink, {
@@ -147,10 +202,19 @@ async function syncWorkspaceWithLease(
     });
   }
 
+  for (const link of staleRepos) {
+    if (
+      !(await removeRecordedLink(workspaceRoot, link)) &&
+      (await statIfPresent(link.destinationPath))
+    )
+      warn(
+        `preserve stale repo: ${link.destinationPath} (not a matching recorded symlink)`,
+      );
+  }
   await writeLinkManifest(
     workspaceRoot,
     manifestPath,
-    await observedOwnedLinks(workspaceRoot, links, previous),
+    await observedOwnedLinks(workspaceRoot, links, previous, caseInsensitive),
   );
   const agentSkillResult = await syncAgentSkills(
     workspaceRoot,

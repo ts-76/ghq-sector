@@ -1,5 +1,5 @@
 import { copyConfigToWorkspace } from "../config/copy-config-to-workspace.js";
-import { loadConfig } from "../config/load-config.js";
+import { type LoadedConfig, loadConfig } from "../config/load-config.js";
 import { getRuntimePaths } from "../config/machine-paths.js";
 import { ensureRepos } from "../ghq/ensure-repos.js";
 import { ApplyError, type ApplyStage } from "./apply-progress.js";
@@ -33,7 +33,11 @@ export interface ApplyResult {
   alreadyPresentRepos: string[];
 }
 
-export async function runApply(cwd = process.cwd()): Promise<ApplyResult> {
+export async function runApply(
+  cwdOrResolvedConfig:
+    | string
+    | Pick<LoadedConfig, "path" | "config"> = process.cwd(),
+): Promise<ApplyResult> {
   const completed: ApplyStage[] = [];
   let stage: ApplyStage = "prepare";
   const report = (nextStage: ApplyStage, done: boolean) => {
@@ -41,18 +45,27 @@ export async function runApply(cwd = process.cwd()): Promise<ApplyResult> {
     if (done) completed.push(nextStage);
   };
   try {
-    const loaded = await loadConfig(cwd);
-    const runtimePaths = await getRuntimePaths(loaded.config);
-    const runtimeConfig = {
-      ...loaded.config,
-      ghqRoot: runtimePaths.resolvedGhqRoot,
-      workspaceRoot: runtimePaths.resolvedWorkspaceRoot,
-    };
+    const loaded =
+      typeof cwdOrResolvedConfig === "string"
+        ? await loadConfig(cwdOrResolvedConfig)
+        : cwdOrResolvedConfig;
+    let runtimeConfig = loaded.config;
+    if (typeof cwdOrResolvedConfig === "string") {
+      const runtimePaths = await getRuntimePaths(loaded.config);
+      runtimeConfig = {
+        ...loaded.config,
+        ghqRoot: runtimePaths.resolvedGhqRoot,
+        workspaceRoot: runtimePaths.resolvedWorkspaceRoot,
+      };
+    }
     report("prepare", true);
     report("repos", false);
     const ensuredRepos = await ensureRepos(runtimeConfig);
     report("repos", true);
-    const syncResult = await runSync(cwd, runtimeConfig, report);
+    const syncResult = await runSync(
+      { path: loaded.path, config: runtimeConfig },
+      report,
+    );
     report("config-copy", false);
     const copiedConfigPath = await copyConfigToWorkspace(
       loaded.path,

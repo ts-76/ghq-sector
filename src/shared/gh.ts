@@ -118,12 +118,3 @@ export async function resolveOwner(
     ),
   };
 }
-
-export async function hasGh() {
-  try {
-    await listGhOwnerCandidates();
-    return true;
-  } catch {
-    return false;
-  }
-}

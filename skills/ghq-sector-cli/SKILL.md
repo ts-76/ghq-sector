@@ -15,7 +15,7 @@ ghq-sector builds a categorized workspace on top of `ghq` — keeping clones whe
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20.19.0 or later
 - `ghq` — installed and configured (`ghq root` must return a valid path)
 - `gh` — optional but recommended (enables owner detection and shorthand clone flows)
 

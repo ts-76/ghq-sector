@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +21,7 @@ describe("config loading", () => {
     expect(loaded).toEqual({
       path: configPath,
       config,
+      raw: JSON.stringify(config, null, 2),
     });
   });
 
@@ -247,8 +248,7 @@ describe("apply workflow", () => {
     expect(loadConfig).toHaveBeenCalledWith("/tmp/project");
     expect(ensureRepos).toHaveBeenCalledWith(runtimeConfig);
     expect(runSync).toHaveBeenCalledWith(
-      "/tmp/project",
-      runtimeConfig,
+      { path: "/tmp/project/ghq-sector.config.json", config: runtimeConfig },
       expect.any(Function),
     );
     expect(copyConfigToWorkspace).toHaveBeenCalledWith(
@@ -315,26 +315,25 @@ describe("apply workflow", () => {
 
     expect(loadConfig).toHaveBeenCalledWith(directConfigPath);
     expect(runSync).toHaveBeenCalledWith(
-      directConfigPath,
-      config,
+      { path: directConfigPath, config },
       expect.any(Function),
     );
   });
 
-  it("reports links failure when the second config load fails after repos completed", async () => {
+  it("syncs and copies the same config snapshot loaded before ensuring repos", async () => {
     const root = await makeTempRoot();
     const config = createConfig(root);
+    config.repos = config.repos.slice(0, 1);
     const configPath = path.join(root, "config.json");
     const loadConfig = vi
       .fn()
       .mockResolvedValueOnce({ path: configPath, config })
       .mockRejectedValueOnce(new Error("external edit made config unreadable"));
+    const source = path.join(config.ghqRoot, "github.com", "ts-76", "life");
+    await mkdir(source, { recursive: true });
     vi.doMock("../src/config/load-config.js", () => ({ loadConfig }));
-    vi.doMock("../src/config/machine-paths.js", () => ({
-      getRuntimePaths: vi.fn(async () => ({
-        resolvedGhqRoot: config.ghqRoot,
-        resolvedWorkspaceRoot: config.workspaceRoot,
-      })),
+    vi.doMock("../src/shared/ghq.js", () => ({
+      getGhqRoot: vi.fn(async () => config.ghqRoot),
     }));
     const ensureRepos = vi.fn(async () => ({
       fetched: [],
@@ -344,13 +343,12 @@ describe("apply workflow", () => {
     const { runApply } = await importFresh<
       typeof import("../src/commands/apply.js")
     >("../src/commands/apply.js");
-    await expect(runApply(configPath)).rejects.toMatchObject({
-      progress: {
-        completed: ["prepare", "repos"],
-        failedStage: "links",
-      },
+    await expect(runApply(configPath)).resolves.toMatchObject({
+      configPath,
+      copiedConfigPath: path.join(config.workspaceRoot, "config.json"),
+      linkedCount: 1,
     });
-    expect(loadConfig).toHaveBeenCalledTimes(2);
+    expect(loadConfig).toHaveBeenCalledTimes(1);
     expect(ensureRepos).toHaveBeenCalledTimes(1);
   });
 
@@ -755,7 +753,7 @@ describe("workspace operations", () => {
     expect(copied).toContain(`workspaceRoot: ${config.workspaceRoot}`);
   });
 
-  it("doctor warns when config ghqRoot differs from detected root", async () => {
+  it("doctor continues local diagnostics without GitHub auth and warns about ghq root drift", async () => {
     const root = await makeTempRoot();
     const config = {
       ...createConfig(root),
@@ -770,12 +768,12 @@ describe("workspace operations", () => {
     await mkdir(config.workspaceRoot, { recursive: true });
 
     vi.doMock("../src/shared/ghq.js", () => ({
-      hasGhq: vi.fn(async () => true),
       getGhqRoot: vi.fn(async () => "/detected/ghq"),
     }));
     vi.doMock("../src/shared/gh.js", () => ({
-      hasGh: vi.fn(async () => true),
-      listGhOwnerCandidates: vi.fn(async () => []),
+      listGhOwnerCandidates: vi.fn(async () => {
+        throw new Error("fixture has no GitHub login");
+      }),
     }));
 
     const { runDoctor } = await importFresh<
@@ -785,6 +783,13 @@ describe("workspace operations", () => {
     const result = await runDoctor(configPath);
 
     expect(result.ghqRoot).toBe("/detected/ghq");
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "gh", level: "warn" }),
+        expect.objectContaining({ scope: "config", level: "success" }),
+        expect.objectContaining({ scope: "workspace root", level: "success" }),
+      ]),
+    );
     expect(
       result.checks.some(
         (check) =>
@@ -795,5 +800,74 @@ describe("workspace operations", () => {
           ),
       ),
     ).toBe(true);
+  });
+
+  it("warns about mismatched repository and skill targets and accepts relative links", async () => {
+    const root = await makeTempRoot();
+    const config = createConfig(root);
+    config.repos = config.repos.slice(0, 1);
+    config.agentSkills = { enabled: true, providers: ["agents"] };
+    const configPath = path.join(root, "config.json");
+    const repoSource = path.join(config.ghqRoot, "github.com", "ts-76", "life");
+    const repoLink = path.join(config.workspaceRoot, "projects", "life");
+    const skillSource = path.join(repoSource, ".agents", "skills", "fixture");
+    const skillLink = path.join(
+      config.workspaceRoot,
+      ".agents",
+      "skills",
+      "fixture",
+    );
+    await mkdir(skillSource, { recursive: true });
+    await mkdir(path.dirname(repoLink), { recursive: true });
+    await mkdir(path.dirname(skillLink), { recursive: true });
+    await writeFile(
+      path.join(skillSource, "SKILL.md"),
+      "---\nname: fixture\n---\n",
+    );
+    await writeFile(configPath, JSON.stringify(config));
+    await symlink(skillSource, repoLink, "dir");
+    await symlink(repoSource, skillLink, "dir");
+
+    const getGhqRoot = vi.fn(async () => config.ghqRoot);
+    const listGhOwnerCandidates = vi.fn(async () => []);
+    vi.doMock("../src/shared/ghq.js", () => ({ getGhqRoot }));
+    vi.doMock("../src/shared/gh.js", () => ({ listGhOwnerCandidates }));
+    const { runDoctor } = await importFresh<
+      typeof import("../src/commands/doctor.js")
+    >("../src/commands/doctor.js");
+
+    const repoScope = "link github.com/ts-76/life";
+    const skillScope = "agent skill link .agents";
+    const wrong = await runDoctor(configPath);
+    expect(wrong.ok).toBe(false);
+    expect(wrong.checks).toEqual(
+      expect.arrayContaining(
+        [repoScope, skillScope].map((scope) =>
+          expect.objectContaining({
+            scope,
+            level: "warn",
+            message: expect.stringContaining("unexpected target"),
+          }),
+        ),
+      ),
+    );
+    expect(getGhqRoot).toHaveBeenCalledTimes(1);
+    expect(listGhOwnerCandidates).toHaveBeenCalledTimes(1);
+
+    for (const [link, source] of [
+      [repoLink, repoSource],
+      [skillLink, skillSource],
+    ] as const) {
+      await unlink(link);
+      await symlink(path.relative(path.dirname(link), source), link, "dir");
+    }
+    const valid = await runDoctor(configPath);
+    expect(valid.checks).toEqual(
+      expect.arrayContaining(
+        [repoScope, skillScope].map((scope) =>
+          expect.objectContaining({ scope, level: "success" }),
+        ),
+      ),
+    );
   });
 });

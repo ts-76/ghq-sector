@@ -13,6 +13,8 @@ export async function copyConfigToWorkspace(
     config.workspaceRoot,
     path.basename(sourceConfigPath),
   );
+  if (path.resolve(sourceConfigPath) === path.resolve(destinationPath))
+    return destinationPath;
   await mkdir(config.workspaceRoot, { recursive: true });
   await writeFile(
     destinationPath,

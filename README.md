@@ -39,7 +39,7 @@ In other words, the value is not just “create symlinks once,” but “rebuild
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 20.19.0 or later
 - `ghq`
 - `gh` for GitHub account-aware repo suggestions in the editor and shorthand owner flows
 
@@ -172,7 +172,7 @@ gsec sync
 
 Sync checks the entire repository/skill link plan before changing links. It refuses destinations outside `workspaceRoot`, parent symlinks within the workspace, duplicate or overlapping link destinations, and existing real files/directories (including empty directories). Errors identify the protected path and reason. Use an actual directory for `workspaceRoot`; resolve a root symlink to its canonical directory first.
 
-A link already pointing to the configured source is safe to reuse, including a broken link whose source is currently missing. Other links can be replaced only when their current target matches the source recorded in `.ghq-sector/repo-links-manifest.json` or `agent-skills-manifest.json`. Unexpected links remain untouched. Stale skill links are removed only when both their recorded destination and actual target match; targets and real directories/files are never recursively deleted. Old path-only skill manifests cannot prove ownership, so their stale entries are left for manual review. Move a conflicting entry or update the config, then rerun Sync/Apply. This protection applies to managed links and their metadata; configured resources and hooks retain their explicit copy/command behavior.
+A link already pointing to the configured source is safe to reuse, including a broken link whose source is currently missing. Other links can be replaced only when their current target matches the source recorded in `.ghq-sector/repo-links-manifest.json` or `agent-skills-manifest.json`. Unexpected links remain untouched. Sync retires repository links removed from the config and stale skill links when their recorded destination and actual target both match. Old path-only skill manifests leave stale entries for manual review. Move a conflicting entry or update the config, then rerun Sync/Apply. This protection applies to managed links and their metadata; configured resources and hooks retain their explicit copy/command behavior.
 
 When a configured repo source is missing, the ownership manifest keeps the observed managed target of any existing link; it does not grant ownership to the missing desired source. Case behavior is probed inside the workspace's volume using a temporary directory that is immediately removed.
 
@@ -216,6 +216,7 @@ Options:
 ### `gsec doctor`
 
 Validate environment setup, config consistency, resource paths, and workspace health.
+If GitHub authentication is unavailable, Doctor reports a warning and continues the local checks.
 
 ```bash
 gsec doctor
@@ -251,6 +252,8 @@ The editor binds only to `127.0.0.1`, `::1`, or `localhost`; other hosts (includ
 Save, Preview, Apply, and draft repo proposals accept UTF-8 `application/json` with a 1 MiB body limit. Invalid JSON/config returns 400, oversized bodies 413, and other content types 415. Repo proposals accept `{config: currentDraft, repo: optionalRepo}` and return a draft without writing the config. During Save/Apply, competing API requests for that config return 409 busy; retry only after completion. An exclusive `<config-file>.editor-lock` lease protects editor instances across processes, including different ports; external CLI tools or manual file edits do not participate. After an abnormal exit, first confirm the recorded PID is no longer running, then remove only that stale lease file before retrying. The editor never removes an existing lease automatically.
 
 An Apply failure returns fixed completed stage names and a failed stage, without underlying exception details. `configSaved` indicates whether Save completed; the failed stage may have made partial changes. Completed changes are not rolled back. Inspect the workspace and run Doctor before retrying hooks or Apply.
+
+`GET /api/config` returns a configuration revision in the response and in `ETag`. Save and Apply require that revision in `If-Match`. A missing revision returns `428`; a stale revision returns `412` and the editor retains the draft. Save and Apply return the new revision after writing. Preview reports duplicate or overlapping configured destinations, and Apply checks the current filesystem and detected case behavior before saving.
 
 ## Config file
 

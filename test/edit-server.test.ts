@@ -10,6 +10,7 @@ import {
 import { request as httpRequest } from "node:http";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GhOwnerCandidate } from "../src/shared/gh.js";
 import { requestRepoProposal } from "../ui/src/repo-proposal.js";
 import { createConfig, makeTempRoot } from "./helpers.js";
 
@@ -31,19 +32,20 @@ async function fixture(host = "127.0.0.1") {
   await writeFile(path.join(uiDistRoot, "index.html"), "local editor");
   await writeFile(configPath, JSON.stringify(config));
   vi.doMock("../src/shared/ghq.js", () => ({
-    hasGhq: vi.fn(async () => false),
     getGhqRoot: vi.fn(async () => {
       throw new Error("isolated fixture");
     }),
   }));
+  const listGhOwnerCandidates = vi.fn(async (): Promise<GhOwnerCandidate[]> => {
+    throw new Error("isolated fixture");
+  });
+  const listGhRepositories = vi.fn(async () => []);
   vi.doMock("../src/shared/gh.js", () => ({
-    hasGh: vi.fn(async () => false),
-    listGhOwnerCandidates: vi.fn(async () => []),
-    listGhRepositories: vi.fn(async () => []),
+    listGhOwnerCandidates,
+    listGhRepositories,
   }));
-  const { createEditServer, MAX_EDITOR_BODY_BYTES } = await import(
-    "../src/commands/edit.js"
-  );
+  const { createEditServer, MAX_EDITOR_BODY_BYTES } =
+    await import("../src/commands/edit.js");
   const options = { host, port: 0, configPath, uiDistRoot };
   const server = await createEditServer(options);
   servers.push(server);
@@ -55,8 +57,11 @@ async function fixture(host = "127.0.0.1") {
     options,
     server,
     origin,
+    revision: await getConfigRevision(origin),
     createEditServer,
     MAX_EDITOR_BODY_BYTES,
+    listGhOwnerCandidates,
+    listGhRepositories,
   };
 }
 
@@ -113,10 +118,21 @@ function request(
   });
 }
 
-function json(config: unknown, method = "PUT") {
+async function getConfigRevision(origin: string) {
+  const result = await request(origin, "/api/config");
+  const revision = result.headers.etag;
+  if (result.status !== 200 || typeof revision !== "string")
+    throw new Error("Expected a config revision");
+  return revision;
+}
+
+function json(config: unknown, method = "PUT", revision?: string) {
   return {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(revision ? { "If-Match": revision } : {}),
+    },
     body: JSON.stringify(config),
   };
 }
@@ -130,26 +146,116 @@ function deferred() {
 }
 
 describe("local editor HTTP boundaries", () => {
+  it("requires a revision and preserves the first tab's save on stale Save or Apply", async () => {
+    const f = await fixture();
+    const original = await readFile(f.configPath, "utf8");
+    const first = { ...f.config, categories: ["first-tab"] };
+    const second = { ...f.config, categories: ["second-tab"] };
+    const missing = await request(f.origin, "/api/config", json(first));
+    expect(missing.status).toBe(428);
+    expect(await readFile(f.configPath, "utf8")).toBe(original);
+
+    const saved = await request(
+      f.origin,
+      "/api/config",
+      json(first, "PUT", f.revision),
+    );
+    expect(saved.status).toBe(200);
+    expect(saved.body.revision).toBe(await getConfigRevision(f.origin));
+    expect(saved.body.revision).not.toBe(f.revision);
+    for (const [route, method] of [
+      ["/api/config", "PUT"],
+      ["/api/apply", "POST"],
+    ]) {
+      const response = await request(
+        f.origin,
+        route,
+        json(second, method, f.revision),
+      );
+      expect(response.status).toBe(412);
+      expect(response.body.code).toBe("CONFIG_CHANGED");
+    }
+    expect(JSON.parse(await readFile(f.configPath, "utf8")).categories).toEqual(
+      ["first-tab"],
+    );
+    await expect(access(f.config.workspaceRoot)).rejects.toThrow();
+  });
+
+  it("rejects duplicate link destinations in Preview and before Apply saves", async () => {
+    const f = await fixture();
+    const [repo] = createConfig(f.root).repos;
+    if (!repo) throw new Error("Expected a repo fixture");
+    const draft = { ...f.config, repos: [repo, { ...repo, owner: "another" }] };
+    for (const entry of draft.repos) {
+      await mkdir(
+        path.join(f.config.ghqRoot, entry.provider, entry.owner, entry.name),
+        {
+          recursive: true,
+        },
+      );
+    }
+    const original = await readFile(f.configPath, "utf8");
+    for (const route of ["/api/preview", "/api/apply"]) {
+      const response = await request(
+        f.origin,
+        route,
+        json(draft, "POST", f.revision),
+      );
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe("WORKSPACE_SYNC_CONFLICT");
+      expect(response.body.message).toContain(repo.name);
+      expect(response.body.result).toBeUndefined();
+    }
+    expect(await readFile(f.configPath, "utf8")).toBe(original);
+    await expect(access(f.config.workspaceRoot)).rejects.toThrow();
+  });
+
+  it("reuses the account lookup when listing GitHub repositories", async () => {
+    const f = await fixture();
+    const unavailable = await request(f.origin, "/api/gh/repos");
+    expect(unavailable.body).toMatchObject({ available: false, accounts: [] });
+    expect(f.listGhOwnerCandidates).toHaveBeenCalledTimes(1);
+    expect(f.listGhRepositories).not.toHaveBeenCalled();
+
+    const accounts = [{ login: "fixture", active: true }];
+    f.listGhOwnerCandidates.mockResolvedValueOnce(accounts);
+    const available = await request(f.origin, "/api/gh/repos?owner=fixture");
+    expect(available.body).toMatchObject({
+      available: true,
+      owner: "fixture",
+      accounts,
+    });
+    expect(f.listGhOwnerCandidates).toHaveBeenCalledTimes(2);
+    expect(f.listGhRepositories).toHaveBeenCalledExactlyOnceWith("fixture");
+  });
+
   it.each(["127.0.0.1", "localhost", "::1"])(
     "supports legitimate reads, Save, Preview and Apply on %s",
     async (host) => {
       const f = await fixture(host);
-      expect(
-        (
-          await request(f.origin, "/api/config", {
-            headers: { Origin: f.origin },
-          })
-        ).status,
-      ).toBe(200);
+      const response = await request(f.origin, "/api/config", {
+        headers: { Origin: f.origin },
+      });
+      expect(response.status).toBe(200);
+      expect(response.body.raw).toBe(JSON.stringify(f.config));
       const draft = { ...f.config, categories: ["draft"] };
-      expect((await request(f.origin, "/api/config", json(draft))).status).toBe(
-        200,
+      const saved = await request(
+        f.origin,
+        "/api/config",
+        json(draft, "PUT", f.revision),
       );
+      expect(saved.status).toBe(200);
       expect(
         (await request(f.origin, "/api/preview", json(draft, "POST"))).status,
       ).toBe(200);
       expect(
-        (await request(f.origin, "/api/apply", json(draft, "POST"))).status,
+        (
+          await request(
+            f.origin,
+            "/api/apply",
+            json(draft, "POST", await getConfigRevision(f.origin)),
+          )
+        ).status,
       ).toBe(200);
       expect(
         JSON.parse(await readFile(f.configPath, "utf8")).categories,
@@ -208,7 +314,13 @@ describe("local editor HTTP boundaries", () => {
         f.config,
       );
       expect(
-        (await request(f.origin, "/api/config", json(nextDraft))).status,
+        (
+          await request(
+            f.origin,
+            "/api/config",
+            json(nextDraft, "PUT", await getConfigRevision(f.origin)),
+          )
+        ).status,
       ).toBe(200);
       expect(JSON.parse(await readFile(f.configPath, "utf8"))).toEqual(
         nextDraft,
@@ -217,9 +329,8 @@ describe("local editor HTTP boundaries", () => {
   );
 
   it("rejects public binds before loading config or building UI", async () => {
-    const { runEdit, createEditServer } = await import(
-      "../src/commands/edit.js"
-    );
+    const { runEdit, createEditServer } =
+      await import("../src/commands/edit.js");
     for (const host of ["0.0.0.0", "::", "example.com", "192.168.1.10"]) {
       await expect(
         runEdit({ host, config: "/missing", open: false }),
@@ -420,7 +531,11 @@ describe("local editor HTTP boundaries", () => {
     const second = await f.createEditServer(f.options);
     servers.push(second);
     const secondOrigin = `http://127.0.0.1:${second.port}`;
-    const apply = request(f.origin, "/api/apply", json(f.config, "POST"));
+    const apply = request(
+      f.origin,
+      "/api/apply",
+      json(f.config, "POST", f.revision),
+    );
     try {
       await entered.promise;
       expect(
@@ -446,7 +561,13 @@ describe("local editor HTTP boundaries", () => {
     }
     expect((await apply).status).toBe(200);
     expect(
-      (await request(secondOrigin, "/api/config", json(f.config))).status,
+      (
+        await request(
+          secondOrigin,
+          "/api/config",
+          json(f.config, "PUT", await getConfigRevision(secondOrigin)),
+        )
+      ).status,
     ).toBe(200);
   });
 
@@ -516,7 +637,11 @@ describe("local editor HTTP boundaries", () => {
         afterSync: [`exec ${quote(process.execPath)} ${quote(hookScript)}`],
       },
     };
-    const apply = request(childOrigin, "/api/apply", json(draft, "POST"));
+    const apply = request(
+      childOrigin,
+      "/api/apply",
+      json(draft, "POST", f.revision),
+    );
     try {
       await vi
         .waitFor(async () => {
@@ -535,7 +660,13 @@ describe("local editor HTTP boundaries", () => {
       await writeFile(releasePath, "release");
       expect((await apply).status).toBe(200);
       expect(
-        (await request(f.origin, "/api/config", json(f.config))).status,
+        (
+          await request(
+            f.origin,
+            "/api/config",
+            json(f.config, "PUT", await getConfigRevision(f.origin)),
+          )
+        ).status,
       ).toBe(200);
     } finally {
       await appendFile(releasePath, "release");
@@ -564,7 +695,11 @@ describe("local editor HTTP boundaries", () => {
       ...f.config,
       resources: [{ from: path.join(f.root, secret), to: "copied" }],
     };
-    const result = await request(f.origin, "/api/apply", json(draft, "POST"));
+    const result = await request(
+      f.origin,
+      "/api/apply",
+      json(draft, "POST", f.revision),
+    );
     expect(result.status).toBe(500);
     expect(result.body.progress).toEqual({
       configSaved: true,
@@ -579,7 +714,13 @@ describe("local editor HTTP boundaries", () => {
       draft.resources,
     );
     expect(
-      (await request(f.origin, "/api/config", json(f.config))).status,
+      (
+        await request(
+          f.origin,
+          "/api/config",
+          json(f.config, "PUT", await getConfigRevision(f.origin)),
+        )
+      ).status,
     ).toBe(200);
   });
 
@@ -601,13 +742,17 @@ describe("local editor HTTP boundaries", () => {
     await mkdir(source, { recursive: true });
     await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(destination, "protected-private-contents");
-    const result = await request(f.origin, "/api/apply", json(draft, "POST"));
+    const result = await request(
+      f.origin,
+      "/api/apply",
+      json(draft, "POST", f.revision),
+    );
     expect(result.status).toBe(409);
     expect(result.body.code).toBe("WORKSPACE_SYNC_CONFLICT");
     expect(result.body.progress).toMatchObject({
-      configSaved: true,
-      completed: ["prepare", "repos"],
-      failedStage: "links",
+      configSaved: false,
+      completed: [],
+      failedStage: "prepare",
     });
     expect(result.text).not.toContain(f.root);
     expect(result.text).not.toContain("protected-private-contents");

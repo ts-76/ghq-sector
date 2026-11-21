@@ -131,30 +131,44 @@ export async function withWorkspaceSyncLease<T>(
   }
 }
 
-function destinationKey(destination: string, caseInsensitive: boolean) {
+export function destinationKey(destination: string, caseInsensitive: boolean) {
   const resolved = path.resolve(destination);
   return caseInsensitive ? resolved.normalize("NFD").toLowerCase() : resolved;
+}
+
+function findLinkedAncestor(
+  destination: string,
+  linkPaths: ReadonlySet<string>,
+) {
+  let parent = path.dirname(destination);
+  while (parent !== destination) {
+    if (linkPaths.has(parent)) return parent;
+    destination = parent;
+    parent = path.dirname(parent);
+  }
 }
 
 export function assertDistinctLinks(
   links: ManagedLink[],
   caseInsensitive = false,
 ) {
-  const paths = links.map((link) =>
-    destinationKey(link.destinationPath, caseInsensitive),
-  );
-  for (let index = 0; index < paths.length; index++) {
-    const destination = paths[index];
-    if (!destination) continue;
-    for (const other of paths.slice(index + 1)) {
-      if (
-        destination === other ||
-        destination.startsWith(`${other}${path.sep}`) ||
-        other.startsWith(`${destination}${path.sep}`)
-      ) {
-        conflict(destination, `duplicate or overlapping destination: ${other}`);
-      }
-    }
+  const linkPaths = new Set<string>();
+  for (const { destinationPath } of links) {
+    const destination = destinationKey(destinationPath, caseInsensitive);
+    if (linkPaths.has(destination))
+      conflict(
+        destination,
+        `duplicate or overlapping destination: ${destination}`,
+      );
+    linkPaths.add(destination);
+  }
+  for (const destination of linkPaths) {
+    const ancestor = findLinkedAncestor(destination, linkPaths);
+    if (ancestor)
+      conflict(
+        ancestor,
+        `duplicate or overlapping destination: ${destination}`,
+      );
   }
 }
 
@@ -163,21 +177,17 @@ export function assertLinkDirectories(
   directories: string[],
   caseInsensitive = false,
 ) {
-  for (const link of links) {
-    const destination = destinationKey(link.destinationPath, caseInsensitive);
-    for (const directory of directories.map((entry) =>
-      destinationKey(entry, caseInsensitive),
-    )) {
-      if (
-        destination === directory ||
-        directory.startsWith(`${destination}${path.sep}`)
-      ) {
-        conflict(
-          destination,
-          `link overlaps a required directory: ${directory}`,
-        );
-      }
-    }
+  if (links.length === 0) return;
+  const linkPaths = new Set(
+    links.map((link) => destinationKey(link.destinationPath, caseInsensitive)),
+  );
+  for (const entry of directories) {
+    const directory = destinationKey(entry, caseInsensitive);
+    const destination = linkPaths.has(directory)
+      ? directory
+      : findLinkedAncestor(directory, linkPaths);
+    if (destination)
+      conflict(destination, `link overlaps a required directory: ${directory}`);
   }
 }
 
@@ -207,6 +217,7 @@ export async function assertLink(
   root: string,
   link: ManagedLink,
   previous: ManagedLink[],
+  caseInsensitive = false,
 ) {
   await assertSafePath(root, link.destinationPath);
   const stat = await statIfPresent(link.destinationPath);
@@ -223,41 +234,42 @@ export async function assertLink(
     await readlink(link.destinationPath),
   );
   if (target === path.resolve(link.sourcePath)) return;
-  if (
-    !previous.some(
-      (entry) =>
-        path.resolve(entry.destinationPath) ===
-          path.resolve(link.destinationPath) &&
-        path.resolve(entry.sourcePath) === target,
-    )
-  ) {
+  if (!matchesRecordedLink(link, target, previous, caseInsensitive)) {
     conflict(link.destinationPath, "unexpected symlink target is preserved");
   }
+}
+
+function matchesRecordedLink(
+  link: ManagedLink,
+  target: string,
+  previous: ManagedLink[],
+  caseInsensitive: boolean,
+) {
+  const destination = destinationKey(link.destinationPath, caseInsensitive);
+  return previous.some(
+    (entry) =>
+      destinationKey(entry.destinationPath, caseInsensitive) === destination &&
+      path.resolve(entry.sourcePath) === target,
+  );
 }
 
 export async function installLink(
   root: string,
   link: ManagedLink,
   previous: ManagedLink[],
+  caseInsensitive = false,
 ) {
-  await assertLink(root, link, previous);
+  await assertLink(root, link, previous, caseInsensitive);
   await mkdir(path.dirname(link.destinationPath), { recursive: true });
   const stat = await statIfPresent(link.destinationPath);
   if (stat) {
-    await assertLink(root, link, previous);
+    await assertLink(root, link, previous, caseInsensitive);
     const target = path.resolve(
       path.dirname(link.destinationPath),
       await readlink(link.destinationPath),
     );
     if (target === path.resolve(link.sourcePath)) return;
-    if (
-      !previous.some(
-        (entry) =>
-          path.resolve(entry.destinationPath) ===
-            path.resolve(link.destinationPath) &&
-          path.resolve(entry.sourcePath) === target,
-      )
-    ) {
+    if (!matchesRecordedLink(link, target, previous, caseInsensitive)) {
       conflict(link.destinationPath, "unexpected symlink target is preserved");
     }
     await retireLink(root, { ...link, sourcePath: target });
@@ -323,10 +335,11 @@ export async function observedOwnedLinks(
   root: string,
   desired: ManagedLink[],
   previous: ManagedLink[],
+  caseInsensitive = false,
 ) {
   const observed: ManagedLink[] = [];
   for (const link of desired) {
-    await assertLink(root, link, previous);
+    await assertLink(root, link, previous, caseInsensitive);
     const stat = await statIfPresent(link.destinationPath);
     if (!stat?.isSymbolicLink()) continue;
     const sourcePath = path.resolve(
@@ -335,12 +348,7 @@ export async function observedOwnedLinks(
     );
     if (
       sourcePath !== path.resolve(link.sourcePath) &&
-      !previous.some(
-        (entry) =>
-          path.resolve(entry.destinationPath) ===
-            path.resolve(link.destinationPath) &&
-          path.resolve(entry.sourcePath) === sourcePath,
-      )
+      !matchesRecordedLink(link, sourcePath, previous, caseInsensitive)
     ) {
       conflict(link.destinationPath, "unexpected symlink target is preserved");
     }
