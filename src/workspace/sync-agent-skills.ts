@@ -13,6 +13,7 @@ import {
   assertLinkDirectories,
   assertMetadataFile,
   assertSafePath,
+  destinationKey,
   installLink,
   observedOwnedLinks,
   readLinkManifest,
@@ -43,6 +44,7 @@ export interface SyncAgentSkillsResult {
 export async function prepareAgentSkillsSync(
   workspaceRoot: string,
   plan: PlannedAgentSkills,
+  caseInsensitive?: boolean,
 ) {
   const reports = {
     json: path.join(workspaceRoot, ".ghq-sector", "agent-skills-report.json"),
@@ -59,24 +61,26 @@ export async function prepareAgentSkillsSync(
   }
   const previous = await readLinkManifest(manifestPath);
   const links = plan.enabled ? plan.selected : [];
-  const caseInsensitive = await usesCaseInsensitivePaths(workspaceRoot);
-  assertDistinctLinks(links, caseInsensitive);
+  const ignoreCase =
+    caseInsensitive ?? (await usesCaseInsensitivePaths(workspaceRoot));
+  assertDistinctLinks(links, ignoreCase);
   assertLinkDirectories(
     links,
     [
       path.dirname(manifestPath),
       ...links.map((link) => path.dirname(link.destinationPath)),
     ],
-    caseInsensitive,
+    ignoreCase,
   );
-  for (const skill of links) await assertLink(workspaceRoot, skill, previous);
+  for (const skill of links)
+    await assertLink(workspaceRoot, skill, previous, ignoreCase);
   const desired = new Set(
-    links.map((link) => path.resolve(link.destinationPath)),
+    links.map((link) => destinationKey(link.destinationPath, ignoreCase)),
   );
   const stale = plan.enabled
     ? previous.filter(
         (link) =>
-          !desired.has(path.resolve(link.destinationPath)) &&
+          !desired.has(destinationKey(link.destinationPath, ignoreCase)) &&
           isManagedSkillPath(workspaceRoot, link.destinationPath),
       )
     : [];
@@ -84,7 +88,7 @@ export async function prepareAgentSkillsSync(
   // authorizes traversal through a symlink parent, or deletion of a real entry.
   for (const link of stale)
     await assertSafePath(workspaceRoot, link.destinationPath);
-  return { reports, manifestPath, previous, stale };
+  return { reports, manifestPath, previous, stale, ignoreCase };
 }
 
 export async function syncAgentSkills(
@@ -100,8 +104,7 @@ export async function syncAgentSkills(
         await prepareAgentSkillsSync(workspaceRoot, plan),
       ),
     );
-  const { reports, manifestPath, previous, stale } =
-    prepared ?? (await prepareAgentSkillsSync(workspaceRoot, plan));
+  const { reports, manifestPath, previous, stale, ignoreCase } = prepared;
   if (!plan.enabled) {
     for (const filename of [reports.json, reports.markdown]) {
       await assertMetadataFile(workspaceRoot, filename);
@@ -131,14 +134,19 @@ export async function syncAgentSkills(
   }
   const linked: string[] = [];
   for (const skill of plan.selected) {
-    await installLink(workspaceRoot, skill, previous);
+    await installLink(workspaceRoot, skill, previous, ignoreCase);
     linked.push(skill.destinationPath);
   }
 
   await writeLinkManifest(
     workspaceRoot,
     manifestPath,
-    await observedOwnedLinks(workspaceRoot, plan.selected, previous),
+    await observedOwnedLinks(
+      workspaceRoot,
+      plan.selected,
+      previous,
+      ignoreCase,
+    ),
   );
 
   await writeMetadataFile(

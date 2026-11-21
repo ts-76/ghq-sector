@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   lstat,
@@ -16,17 +17,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildJsonSchema } from "../config/build-json-schema.js";
 import { loadConfig } from "../config/load-config.js";
-import { normalizePortableConfig } from "../config/machine-paths.js";
+import {
+  normalizePortableConfig,
+  resolveConfigForCurrentMachine,
+} from "../config/machine-paths.js";
 import { saveConfig } from "../config/save-config.js";
 import type { GhqWsConfig } from "../config/schema.js";
 import { parseConfig } from "../config/validate-config.js";
-import {
-  hasGh,
-  listGhOwnerCandidates,
-  listGhRepositories,
-} from "../shared/gh.js";
+import { listGhOwnerCandidates, listGhRepositories } from "../shared/gh.js";
 import { info, success } from "../shared/logger.js";
 import { planWorkspace } from "../workspace/plan-workspace.js";
+import { WorkspaceSyncConflictError } from "../workspace/safe-links.js";
+import { prepareWorkspaceSync } from "../workspace/sync-workspace.js";
 import { ApplyError, runApply } from "./apply.js";
 import { runDoctor } from "./doctor.js";
 
@@ -132,6 +134,12 @@ export async function createEditServer(options: {
           code: error.code,
           message: error.message,
         });
+      } else if (error instanceof WorkspaceSyncConflictError) {
+        sendJson(response, 409, {
+          ok: false,
+          code: error.code,
+          message: workspaceConflictMessage(error),
+        });
       } else {
         sendJson(response, 500, {
           ok: false,
@@ -205,13 +213,16 @@ async function handleRequest(
 
   if (method === "GET" && url.pathname === "/api/config") {
     const current = await loadConfig(options.configPath);
-    const content = await readFile(current.path, "utf8");
+    const revision = configRevision(current.raw);
+    response.setHeader("etag", revision);
+    response.setHeader("cache-control", "no-store");
     sendJson(response, 200, {
       path: current.path,
       format: current.path.endsWith(".json") ? "json" : "yaml",
       schema: buildJsonSchema(),
-      raw: content,
+      raw: current.raw,
       value: current.config,
+      revision,
     });
     return;
   }
@@ -219,12 +230,17 @@ async function handleRequest(
   if (method === "PUT" && url.pathname === "/api/config") {
     const payload = await readJsonBody(request);
     const config = parseApiConfig(payload);
-    await withConfigUpdate(options.configPath, async () => {
-      await saveConfig(options.configPath, config);
+    const revision = await withConfigUpdate(options.configPath, async () => {
+      await assertConfigRevision(
+        options.configPath,
+        request.headers["if-match"],
+      );
+      return configRevision(await saveConfig(options.configPath, config));
     });
     sendJson(response, 200, {
       ok: true,
       value: normalizePortableConfig(config),
+      revision,
     });
     return;
   }
@@ -240,48 +256,60 @@ async function handleRequest(
   if (method === "POST" && url.pathname === "/api/apply") {
     const payload = await readJsonBody(request);
     const config = parseApiConfig(payload);
-    let reply: { status: number; body: unknown } | undefined;
-    await withConfigUpdate(options.configPath, async () => {
-      let configSaved = false;
+    const expectedRevision = request.headers["if-match"];
+    const reply = await withConfigUpdate(options.configPath, async () => {
+      await assertConfigRevision(options.configPath, expectedRevision);
+      let revision: string | undefined;
+      let startedSave = false;
       try {
-        await saveConfig(options.configPath, config);
-        configSaved = true;
-        const result = await runApply(options.configPath);
-        reply = {
+        const runtimeConfig = await resolveConfigForCurrentMachine(config);
+        await prepareWorkspaceSync(runtimeConfig);
+        await assertConfigRevision(options.configPath, expectedRevision);
+        startedSave = true;
+        revision = configRevision(await saveConfig(options.configPath, config));
+        const result = await runApply({
+          path: options.configPath,
+          config: runtimeConfig,
+        });
+        return {
           status: 200,
           body: {
             ok: true,
             message: "workspace applied",
             result,
             value: normalizePortableConfig(config),
+            revision,
           },
         };
       } catch (error) {
+        if (error instanceof RequestError) throw error;
+        const configSaved = revision !== undefined;
         const progress =
           error instanceof ApplyError
             ? error.progress
             : {
                 completed: [],
-                failedStage: configSaved ? "prepare" : "config-save",
-                failedStageMayHaveChanges: !configSaved,
+                failedStage:
+                  startedSave && !configSaved ? "config-save" : "prepare",
+                failedStageMayHaveChanges: startedSave && !configSaved,
               };
-        const conflict =
-          error instanceof ApplyError &&
-          error.cause instanceof Error &&
-          "code" in error.cause &&
-          error.cause.code === "WORKSPACE_SYNC_CONFLICT";
-        reply = {
+        const cause = error instanceof ApplyError ? error.cause : error;
+        const conflict = cause instanceof WorkspaceSyncConflictError;
+        return {
           status: conflict ? 409 : 500,
           body: {
             ok: false,
             code: conflict ? "WORKSPACE_SYNC_CONFLICT" : "APPLY_FAILED",
-            message: "Apply stopped; completed changes were not rolled back.",
+            message: conflict
+              ? workspaceConflictMessage(cause)
+              : "Apply stopped; completed changes were not rolled back.",
             progress: { configSaved, ...progress },
+            revision,
           },
         };
       }
     });
-    if (reply) sendJson(response, reply.status, reply.body);
+    sendJson(response, reply.status, reply.body);
     return;
   }
 
@@ -302,8 +330,8 @@ async function handleRequest(
 
   if (method === "GET" && url.pathname === "/api/gh/repos") {
     const current = await loadConfig(options.configPath);
-    const ghAvailable = await hasGh();
-    if (!ghAvailable) {
+    const accounts = await listGhOwnerCandidates().catch(() => null);
+    if (!accounts) {
       sendJson(response, 200, {
         ok: true,
         available: false,
@@ -313,7 +341,6 @@ async function handleRequest(
       return;
     }
 
-    const accounts = await listGhOwnerCandidates();
     const owner =
       url.searchParams.get("owner") ??
       current.config.defaults?.owner ??
@@ -436,9 +463,38 @@ function parseApiConfig(payload: unknown) {
   }
 }
 
-async function withConfigUpdate(
+function configRevision(raw: string | Buffer) {
+  return `"${createHash("sha256").update(raw).digest("hex")}"`;
+}
+
+async function assertConfigRevision(
   configPath: string,
-  operation: () => Promise<void>,
+  expected: string | undefined,
+) {
+  if (!expected)
+    throw new RequestError(
+      428,
+      "CONFIG_REVISION_REQUIRED",
+      "Load the config before saving.",
+    );
+  if (expected !== configRevision(await readFile(configPath)))
+    throw new RequestError(
+      412,
+      "CONFIG_CHANGED",
+      "The saved config has changed. Review it before retrying.",
+    );
+}
+
+function workspaceConflictMessage(error: WorkspaceSyncConflictError) {
+  const entry = error.conflicts[0];
+  return entry
+    ? `Workspace conflict at ${path.basename(entry.path)}. Check for duplicate, overlapping, or existing destinations.`
+    : "Workspace link destinations conflict.";
+}
+
+async function withConfigUpdate<T>(
+  configPath: string,
+  operation: () => Promise<T>,
 ) {
   const busy = () =>
     new RequestError(
@@ -461,7 +517,7 @@ async function withConfigUpdate(
     await lease.writeFile(
       JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
     );
-    await operation();
+    return await operation();
   } finally {
     try {
       if (lease) {

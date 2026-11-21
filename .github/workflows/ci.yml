@@ -37,8 +37,8 @@ jobs:
       - name: Install UI dependencies
         run: bun install --cwd ui --frozen-lockfile
 
-      - name: Lint
-        run: bunx @biomejs/biome ci .
+      - name: Lint and format
+        run: bun run check
 
       - name: Typecheck
         run: |
@@ -54,5 +54,10 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Check package tarball
-        run: bun run pack:check
+      - name: Setup minimum supported Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.19.0
+
+      - name: Check and install package tarball
+        run: bun run pack:check --consumer

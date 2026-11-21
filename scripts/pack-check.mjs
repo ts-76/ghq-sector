@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -52,6 +52,41 @@ try {
     [...files].some((file) => file.startsWith("package/dist/ui-dist/assets/")),
     "Missing built UI assets",
   );
+  if (process.argv.includes("--consumer")) {
+    const cwd = join(temp, "consumer");
+    const userconfig = join(temp, "user.npmrc");
+    const globalconfig = join(temp, "global.npmrc");
+    await mkdir(cwd);
+    await writeFile(join(cwd, "package.json"), '{"private":true}\n');
+    await writeFile(userconfig, "");
+    await writeFile(globalconfig, "");
+    const install = spawnSync(
+      "npm",
+      [
+        "install",
+        tarball,
+        "--engine-strict",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--registry=https://registry.npmjs.org",
+        `--userconfig=${userconfig}`,
+        `--globalconfig=${globalconfig}`,
+      ],
+      { cwd, env, encoding: "utf8" },
+    );
+    assert.equal(install.status, 0, install.stderr || install.error?.message);
+    const cli = spawnSync(
+      process.execPath,
+      [join(cwd, "node_modules", manifest.name, manifest.bin.gsec), "--help"],
+      { cwd, env, encoding: "utf8" },
+    );
+    assert.equal(cli.status, 0, cli.stderr || cli.error?.message);
+    assert.match(cli.stdout, /ghq-sector/);
+    console.log(
+      `Consumer install and CLI startup passed on ${process.version}`,
+    );
+  }
   console.log(
     JSON.stringify(
       {

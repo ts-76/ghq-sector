@@ -7,6 +7,7 @@ import {
   getRepoSourcePath,
 } from "../shared/repo-paths.js";
 import { type PlannedAgentSkills, planAgentSkills } from "./agent-skills.js";
+import { assertWorkspaceLinkLayout } from "./sync-workspace.js";
 
 export interface PlannedRepoLink {
   provider: string;
@@ -140,6 +141,13 @@ export async function planWorkspace(
   const linkableRepos = repoLinks.filter((repo) => repo.available).length;
   const missingRepos = repoLinks.length - linkableRepos;
   const agentSkills = await planAgentSkills(runtimeConfig);
+  assertWorkspaceLinkLayout(runtimeConfig, [
+    ...repoLinks.map(({ ghqPath, workspacePath }) => ({
+      sourcePath: ghqPath,
+      destinationPath: workspacePath,
+    })),
+    ...agentSkills.selected,
+  ]);
 
   return {
     ghqRoot,

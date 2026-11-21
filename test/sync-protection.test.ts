@@ -4,6 +4,8 @@ import {
   mkdir,
   readFile,
   readlink,
+  readdir,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -12,7 +14,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { planAgentSkills } from "../src/workspace/agent-skills.js";
 import { usesCaseInsensitivePaths } from "../src/workspace/safe-links.js";
-import { syncAgentSkills } from "../src/workspace/sync-agent-skills.js";
+import {
+  prepareAgentSkillsSync,
+  syncAgentSkills,
+} from "../src/workspace/sync-agent-skills.js";
 import { syncWorkspace } from "../src/workspace/sync-workspace.js";
 import { createConfig, makeTempRoot } from "./helpers.js";
 
@@ -29,6 +34,36 @@ async function fixture() {
 }
 
 describe("workspace destination protection", () => {
+  it("retires removed repo links and allows the destination to be configured again", async () => {
+    const { config, source, destination } = await fixture();
+    const [repo] = config.repos;
+    if (!repo) throw new Error("Expected a repo fixture");
+    const manual = path.join(path.dirname(destination), "manual");
+    await symlink(source, manual, "dir");
+    await syncWorkspace(config);
+    await syncWorkspace({ ...config, repos: [] });
+    await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readlink(manual)).toBe(source);
+    const retired = (await readdir(path.dirname(destination))).find((name) =>
+      name.startsWith(".ghq-sector-retired-"),
+    );
+    expect(retired).toBeDefined();
+    expect(await readFile(path.join(source, "keep.txt"), "utf8")).toBe(
+      "source contents",
+    );
+
+    const replacement = { ...repo, owner: "replacement" };
+    const nextSource = path.join(
+      config.ghqRoot,
+      replacement.provider,
+      replacement.owner,
+      replacement.name,
+    );
+    await mkdir(nextSource, { recursive: true });
+    await syncWorkspace({ ...config, repos: [replacement] });
+    expect(await readlink(destination)).toBe(nextSource);
+  });
+
   it("rejects case aliases before linking on case-insensitive volumes", async () => {
     const { config, destination } = await fixture();
     if (!(await usesCaseInsensitivePaths(config.workspaceRoot))) return;
@@ -177,6 +212,37 @@ async function skillsFixture() {
 }
 
 describe("skill destination protection", () => {
+  it("matches recorded skill ownership after a case-only spelling change", async () => {
+    const { config, sourcePath, destinationPath } = await skillsFixture();
+    await syncWorkspace(config);
+    const newSource = path.join(
+      path.dirname(sourcePath),
+      path.basename(sourcePath).toUpperCase(),
+    );
+    const newDestination = path.join(
+      path.dirname(destinationPath),
+      path.basename(destinationPath).toUpperCase(),
+    );
+    for (const [oldPath, newPath] of [
+      [sourcePath, newSource],
+      [destinationPath, newDestination],
+    ] as const) {
+      // Use an intermediate name so the test also works on case-insensitive volumes.
+      const intermediate = `${oldPath}.rename-fixture`;
+      await rename(oldPath, intermediate);
+      await rename(intermediate, newPath);
+    }
+    const plan = await planAgentSkills(config);
+    const prepared = await prepareAgentSkillsSync(
+      config.workspaceRoot,
+      plan,
+      true,
+    );
+    expect(prepared.stale).toEqual([]);
+    await syncAgentSkills(config.workspaceRoot, plan, prepared);
+    expect(await readlink(newDestination)).toBe(newSource);
+  });
+
   it("does not allow stale cleanup to unlink a current repo destination", async () => {
     const { config, source } = await skillsFixture();
     const manifest = path.join(

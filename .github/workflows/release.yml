@@ -92,8 +92,8 @@ jobs:
         run: bun install --cwd ui --frozen-lockfile
       - name: Audit application, UI, and release tooling
         run: bun run audit
-      - name: Lint
-        run: bun run lint
+      - name: Lint and format
+        run: bun run check
       - name: Typecheck
         run: |
           bun run typecheck

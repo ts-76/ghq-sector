@@ -107,9 +107,8 @@ describe("config validation", () => {
   });
 
   it("exposes optional repo descriptions in the JSON schema", async () => {
-    const { buildJsonSchema } = await import(
-      "../src/config/build-json-schema.js"
-    );
+    const { buildJsonSchema } =
+      await import("../src/config/build-json-schema.js");
 
     const schema = buildJsonSchema();
     const repoDescription =
@@ -125,9 +124,8 @@ describe("config validation", () => {
 
 describe("portable path helpers", () => {
   it("collapses current-home absolute roots back to tilde form", async () => {
-    const { normalizePortableConfig } = await import(
-      "../src/config/machine-paths.js"
-    );
+    const { normalizePortableConfig } =
+      await import("../src/config/machine-paths.js");
     const home = os.homedir();
     const config = createConfig(home);
     const absoluteConfig = {
@@ -143,9 +141,8 @@ describe("portable path helpers", () => {
   });
 
   it("keeps already-portable tilde paths stable across repeated normalization", async () => {
-    const { normalizePortableConfig } = await import(
-      "../src/config/machine-paths.js"
-    );
+    const { normalizePortableConfig } =
+      await import("../src/config/machine-paths.js");
 
     const config = {
       ...createConfig("/tmp/project"),
@@ -269,9 +266,8 @@ describe("AGENTS.md generation", () => {
       "# Dotfiles\n\nShell and editor settings.\n",
       "utf8",
     );
-    const { generateAgentsMd } = await import(
-      "../src/workspace/generate-agents-md.js"
-    );
+    const { generateAgentsMd } =
+      await import("../src/workspace/generate-agents-md.js");
 
     const agentsMdPath = await generateAgentsMd(config);
     const content = await readFile(agentsMdPath, "utf8");
@@ -309,9 +305,8 @@ describe("AGENTS.md generation", () => {
       categories: ["projects"],
       repos: [baseConfig.repos[0]],
     };
-    const { generateAgentsMd } = await import(
-      "../src/workspace/generate-agents-md.js"
-    );
+    const { generateAgentsMd } =
+      await import("../src/workspace/generate-agents-md.js");
 
     await generateAgentsMd(config);
     const content = await readFile(agentsMdPath, "utf8");
@@ -396,9 +391,8 @@ describe("AGENTS.md generation", () => {
       categories: ["projects"],
       repos: [baseConfig.repos[0]],
     };
-    const { generateAgentsMd } = await import(
-      "../src/workspace/generate-agents-md.js"
-    );
+    const { generateAgentsMd } =
+      await import("../src/workspace/generate-agents-md.js");
 
     await generateAgentsMd(config);
     const content = await readFile(agentsMdPath, "utf8");

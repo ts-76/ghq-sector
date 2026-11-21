@@ -1,7 +1,6 @@
 import path from "node:path";
-import { loadConfig } from "../config/load-config.js";
+import { type LoadedConfig, loadConfig } from "../config/load-config.js";
 import { resolveConfigForCurrentMachine } from "../config/machine-paths.js";
-import type { GhqWsConfig } from "../config/schema.js";
 import { copyResources } from "../resources/copy-resources.js";
 import { info, success, warn } from "../shared/logger.js";
 import { generateAgentsMd } from "../workspace/generate-agents-md.js";
@@ -33,16 +32,22 @@ export interface RunSyncResult {
 }
 
 export async function runSync(
-  cwd = process.cwd(),
-  runtimeConfig?: GhqWsConfig,
+  cwdOrResolvedConfig:
+    | string
+    | Pick<LoadedConfig, "path" | "config"> = process.cwd(),
   report?: ApplyProgressReporter,
 ): Promise<RunSyncResult> {
   report?.("links", false);
-  const loaded = await loadConfig(cwd);
+  const loaded =
+    typeof cwdOrResolvedConfig === "string"
+      ? await loadConfig(cwdOrResolvedConfig)
+      : cwdOrResolvedConfig;
   info(`loaded config: ${loaded.path}`);
 
   const config =
-    runtimeConfig ?? (await resolveConfigForCurrentMachine(loaded.config));
+    typeof cwdOrResolvedConfig === "string"
+      ? await resolveConfigForCurrentMachine(loaded.config)
+      : loaded.config;
   const result = await syncWorkspace(config);
   report?.("links", true);
   report?.("resources", false);

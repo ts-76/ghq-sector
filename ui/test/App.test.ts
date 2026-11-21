@@ -38,9 +38,10 @@ const ghPayload = {
 };
 let instance: ReturnType<typeof mount>;
 let serverValue: unknown;
+let serverRevision: string;
 let configFormat: "json" | "yaml";
 let ghAvailable: boolean;
-let writes: { url: string; body: unknown }[];
+let writes: { url: string; body: unknown; revision: string | null }[];
 let putHandler: (() => Promise<Response>) | undefined;
 let applyHandler: (() => Promise<Response>) | undefined;
 let previewHandler: (() => Promise<Response>) | undefined;
@@ -115,6 +116,7 @@ async function start() {
 
 beforeEach(() => {
   serverValue = structuredClone(original);
+  serverRevision = '"initial"';
   configFormat = "json";
   ghAvailable = false;
   writes = [];
@@ -129,16 +131,26 @@ beforeEach(() => {
     vi.fn(async (url: string, options?: RequestInit) => {
       if (options?.method) {
         const body = JSON.parse(options.body as string);
-        writes.push({ url, body });
+        writes.push({
+          url,
+          body,
+          revision: new Headers(options.headers).get("if-match"),
+        });
         if (url === "/api/config") {
           if (putHandler) return putHandler();
           serverValue = body;
-          return response({ ok: true });
+          serverRevision = '"saved"';
+          return response({ ok: true, revision: serverRevision });
         }
         if (url === "/api/apply") {
           if (applyHandler) return applyHandler();
           serverValue = body;
-          return response({ ok: true, message: "workspace applied" });
+          serverRevision = '"applied"';
+          return response({
+            ok: true,
+            message: "workspace applied",
+            revision: serverRevision,
+          });
         }
         if (url === "/api/preview")
           return previewHandler
@@ -153,6 +165,7 @@ beforeEach(() => {
           : response({
               path: "/fixture/config.json",
               format: configFormat,
+              revision: serverRevision,
               schema: {
                 type: "object",
                 properties: {
@@ -206,6 +219,71 @@ afterEach(async () => {
 });
 
 describe("JSON draft retention", () => {
+  it("sends the loaded and acknowledged revisions and retains a rejected draft", async () => {
+    await start();
+    await click("Save config");
+    expect(writes.find(({ url }) => url === "/api/config")?.revision).toBe(
+      '"initial"',
+    );
+    const draft = { ...original, categories: ["local-draft"] };
+    await click("Raw");
+    await input("Raw JSON config", JSON.stringify(draft));
+    const pending = deferred();
+    applyHandler = () => pending.promise;
+    await click("Apply workspace");
+    const newerDraft = { ...draft, categories: ["newer-local-draft"] };
+    await input("Raw JSON config", JSON.stringify(newerDraft));
+    pending.resolve({ code: "CONFIG_CHANGED" }, 412);
+    await settle();
+    expect(writes.find(({ url }) => url === "/api/apply")?.revision).toBe(
+      '"saved"',
+    );
+    expect(JSON.parse(raw())).toEqual(newerDraft);
+    expect(document.body.textContent).toContain("The saved config changed");
+  });
+
+  it("shows automatic Preview conflicts for the current draft", async () => {
+    previewHandler = () =>
+      response(
+        {
+          code: "WORKSPACE_SYNC_CONFLICT",
+          message: "Workspace conflict at duplicate.",
+        },
+        409,
+      );
+    await start();
+    expect(
+      document.querySelector('[data-testid="preview-status"]')?.textContent,
+    ).toContain("Workspace conflict at duplicate");
+  });
+
+  it("previews once per load, edit and manual refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      await start();
+      const previews = () => writes.filter(({ url }) => url === "/api/preview");
+      await vi.advanceTimersByTimeAsync(300);
+      expect(previews()).toHaveLength(1);
+
+      await click("Reload");
+      await vi.advanceTimersByTimeAsync(300);
+      expect(previews()).toHaveLength(2);
+
+      const draft = { ...original, categories: ["edited"] };
+      await input("Visual JSON test editor", JSON.stringify(draft));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(previews()).toHaveLength(3);
+      expect(previews().at(-1)?.body).toEqual(draft);
+
+      await click("Refresh workspace plan");
+      await vi.advanceTimersByTimeAsync(300);
+      expect(previews()).toHaveLength(4);
+      expect(previews().at(-1)?.body).toEqual(draft);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("round trips Visual / Raw without losing either edit", async () => {
     await start();
     const visualEdit = {
@@ -586,15 +664,17 @@ describe("JSON editor presentation", () => {
       document.querySelector('[data-testid="apply-status"]')?.textContent,
     ).toBe("Applying");
     serverValue = draft;
+    serverRevision = '"partial-conflict"';
     pending.resolve(
       {
         code: "WORKSPACE_SYNC_CONFLICT",
-        message: "stopped",
+        message: "Workspace conflict at projects.",
+        revision: serverRevision,
         progress: {
           configSaved: true,
-          completed: ["ensure-repos"],
-          failedStage: "sync",
-          failedStageMayHaveChanges: false,
+          completed: ["prepare", "repos"],
+          failedStage: "links",
+          failedStageMayHaveChanges: true,
         },
       },
       409,
@@ -616,9 +696,9 @@ describe("JSON editor presentation", () => {
         ?.textContent,
     ).toContain("No differences detected");
     await click("Raw");
-    expect(document.body.textContent).toContain("ensure-repos");
+    expect(document.body.textContent).toContain("prepare, repos");
     expect(document.body.textContent).toContain(
-      "existing files or links were protected",
+      "Workspace conflict at projects.",
     );
     applyHandler = () => response({ ok: true, value: draft });
     await click("Apply workspace");
@@ -642,9 +722,11 @@ describe("JSON editor presentation", () => {
     await click("Apply workspace");
     await input("Raw JSON config", JSON.stringify(newer));
     serverValue = sent;
+    serverRevision = '"partial"';
     pending.resolve(
       {
         code: "APPLY_FAILED",
+        revision: serverRevision,
         progress: {
           configSaved: true,
           completed: [],
@@ -700,10 +782,67 @@ describe("JSON editor presentation", () => {
     expect(JSON.parse(raw()).categories).toEqual(["sent"]);
   });
 
+  it("keeps a newer external revision out of a partial Apply acknowledgement", async () => {
+    await start();
+    await click("Raw");
+    const draft = { ...original, categories: ["local-draft"] };
+    await input("Raw JSON config", JSON.stringify(draft));
+    applyHandler = () => {
+      serverValue = { ...original, categories: ["external-change"] };
+      serverRevision = '"external"';
+      return response(
+        {
+          code: "APPLY_FAILED",
+          revision: '"partial"',
+          progress: { configSaved: true, failedStage: "links" },
+        },
+        500,
+      );
+    };
+    await click("Apply workspace");
+    expect(JSON.parse(raw())).toEqual(draft);
+    expect(document.body.textContent).toContain(
+      "Saved contents could not be confirmed",
+    );
+    putHandler = () => response({ code: "CONFIG_CHANGED" }, 412);
+    await click("Save config");
+    expect(writes.find(({ url }) => url === "/api/config")?.revision).toBe(
+      '"partial"',
+    );
+  });
+
   it("does not revive an old Applied badge after a failed retry and Reload", async () => {
     await start();
     applyHandler = () =>
-      response({ ok: true, value: original, result: { linked: 5 } });
+      response({
+        ok: true,
+        value: original,
+        result: {
+          configPath: "/fixture/config.json",
+          workspaceRoot: "/fixture/workspace",
+          linkedCount: 0,
+          skippedCount: 0,
+          copiedResourcesCount: 0,
+          codeWorkspacePath: null,
+          agentsMdPath: "/fixture/workspace/AGENTS.md",
+          agentSkills: {
+            linkedCount: 0,
+            duplicateCount: 0,
+            warningCount: 0,
+            reports: {
+              json: "/fixture/workspace/.ghq-sector/agent-skills-report.json",
+              markdown: "/fixture/workspace/.ghq-sector/agent-skills-report.md",
+            },
+            byProvider: {
+              agents: { linkedCount: 0 },
+              claude: { linkedCount: 0 },
+            },
+          },
+          copiedConfigPath: "/fixture/workspace/config.json",
+          fetchedRepos: [],
+          alreadyPresentRepos: [],
+        },
+      });
     await click("Apply workspace");
     expect(
       document.querySelector('[data-testid="apply-status"]')?.textContent,

@@ -14,7 +14,7 @@ import {
   Save,
   Stethoscope,
 } from "lucide-svelte";
-import { onMount } from "svelte";
+import { onMount, untrack } from "svelte";
 import { withDraftChoices } from "./editor-schema.js";
 
 type ConfigFormat = "json" | "yaml";
@@ -196,6 +196,7 @@ let previewResult = $state<PreviewResult | null>(null);
 let applyResult = $state<ApplyResult | null>(null);
 let appliedSnapshot = $state("");
 let previewSnapshot = $state("");
+let previewConflict = $state("");
 let applyFailed = $state(false);
 let savedConfigUnconfirmed = $state(false);
 let applyProgress = $state<{
@@ -208,6 +209,7 @@ let doctorResult = $state<DoctorResult | null>(null);
 let rawValue = $state("");
 let currentTab = $state<EditorTab>("visual");
 let originalSnapshot = $state("");
+let configRevision = "";
 let draftError = $derived.by(() => {
   if (format !== "json")
     return "YAML editing is not supported. Use the CLI to edit this file.";
@@ -276,6 +278,7 @@ let repoChoices = $derived.by(() => {
 // A revision identifies an edit; the epoch identifies a loaded file/baseline.
 let draftRevision = 0;
 let loadEpoch = 0;
+let previewedLoadEpoch = 0;
 let previewRequest = 0;
 let doctorRequest = 0;
 let ghRequest = 0;
@@ -326,7 +329,6 @@ onMount(async () => {
   await load();
   await loadDoctor();
   await loadGhRepos();
-  await previewWorkspace({ silent: true });
 });
 
 $effect(() => {
@@ -334,15 +336,11 @@ $effect(() => {
     return;
   }
 
-  const snapshot = serializeCurrentValue();
-  if (!snapshot) {
+  if (!rawValue || !draftValid) return;
+  if (previewedLoadEpoch !== loadEpoch) {
+    previewedLoadEpoch = loadEpoch;
+    untrack(() => void previewWorkspace({ silent: true }));
     return;
-  }
-
-  if (!draftValid) return;
-
-  if (previewTimer) {
-    clearTimeout(previewTimer);
   }
 
   previewTimer = setTimeout(() => {
@@ -389,6 +387,7 @@ function editRaw(text: string) {
   previewLoading = false;
   previewResult = null;
   previewSnapshot = "";
+  previewConflict = "";
   applyResult = null;
   successMessage = "";
   try {
@@ -414,17 +413,25 @@ async function responsePayload(response: Response) {
     const message =
       payload.code === "EDITOR_BUSY"
         ? "Another Save or Apply is running. Wait and try again."
-        : payload.code === "WORKSPACE_SYNC_CONFLICT"
-          ? "Workspace conflict: existing files or links were protected."
+        : payload.code === "CONFIG_CHANGED"
+          ? "The saved config changed. Your draft is retained. Copy it before reloading to review the saved file."
           : typeof payload.message === "string"
             ? payload.message
             : `Request failed (${response.status})`;
     throw Object.assign(new Error(message), {
       code: payload.code,
       progress: payload.progress,
+      revision: payload.revision,
     });
   }
   return payload;
+}
+
+function hasErrorCode(
+  error: unknown,
+  code: string,
+): error is Error & { code: string } {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function getRepoTemplate() {
@@ -482,6 +489,7 @@ async function load() {
     configPath = payload.path;
     format = payload.format;
     rawValue = payload.raw;
+    configRevision = payload.revision;
     originalSnapshot = format === "json" ? serializeConfig(value) : payload.raw;
     currentTab = format === "json" ? currentTab : "raw";
     applyFailed = false;
@@ -490,6 +498,7 @@ async function load() {
     draftRevision++;
     previewResult = null;
     previewSnapshot = "";
+    previewConflict = "";
     applyResult = null;
     appliedSnapshot = "";
     return true;
@@ -508,11 +517,7 @@ async function reload() {
     return;
   successMessage = "";
   if (!(await load())) return;
-  await Promise.all([
-    loadDoctor(),
-    loadGhRepos(),
-    previewWorkspace({ silent: true }),
-  ]);
+  await Promise.all([loadDoctor(), loadGhRepos()]);
   successMessage = `reloaded ${configPath}`;
 }
 
@@ -529,19 +534,26 @@ async function save() {
     const result = await responsePayload(
       await fetch("/api/config", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": configRevision,
+        },
         body: JSON.stringify(payload),
       }),
     );
     // The server saved this snapshot, even if a newer edit is already visible.
     if (epoch === loadEpoch) {
+      configRevision = result.revision ?? configRevision;
       originalSnapshot =
         result.value === undefined ? snapshot : serializeConfig(result.value);
       savedConfigUnconfirmed = false;
       if (revision === draftRevision) successMessage = `saved ${configPath}`;
     }
   } catch (error) {
-    if (epoch === loadEpoch && revision === draftRevision)
+    if (
+      epoch === loadEpoch &&
+      (revision === draftRevision || hasErrorCode(error, "CONFIG_CHANGED"))
+    )
       errorMessage =
         error instanceof Error ? error.message : "failed to save config";
   } finally {
@@ -551,6 +563,10 @@ async function save() {
 
 async function previewWorkspace(options?: { silent?: boolean }) {
   if (!draftValid || loading || saving || applying) return;
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
   const payload = getCurrentPayload();
   const request = ++previewRequest;
   const epoch = loadEpoch;
@@ -575,17 +591,25 @@ async function previewWorkspace(options?: { silent?: boolean }) {
     )
       return;
     previewResult = result.result ?? null;
+    previewConflict = "";
     previewSnapshot = serializeConfig(payload);
     if (!options?.silent) successMessage = "workspace plan updated";
   } catch (error) {
     if (
       request === previewRequest &&
       epoch === loadEpoch &&
-      revision === draftRevision &&
-      !options?.silent
+      revision === draftRevision
     ) {
-      errorMessage =
-        error instanceof Error ? error.message : "failed to preview workspace";
+      if (hasErrorCode(error, "WORKSPACE_SYNC_CONFLICT")) {
+        previewResult = null;
+        previewSnapshot = "";
+        previewConflict = error.message;
+      } else if (!options?.silent) {
+        errorMessage =
+          error instanceof Error
+            ? error.message
+            : "failed to preview workspace";
+      }
     }
   } finally {
     if (request === previewRequest) previewLoading = false;
@@ -611,11 +635,15 @@ async function applyWorkspace() {
     const result = await responsePayload(
       await fetch("/api/apply", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": configRevision,
+        },
         body: JSON.stringify(payload),
       }),
     );
     if (epoch !== loadEpoch) return;
+    configRevision = result.revision ?? configRevision;
     const acknowledged =
       result.value === undefined ? snapshot : serializeConfig(result.value);
     originalSnapshot = acknowledged;
@@ -651,9 +679,21 @@ async function applyWorkspace() {
       }
       if (applyProgress?.configSaved) {
         savedConfigUnconfirmed = true;
+        const writtenRevision =
+          error instanceof Error &&
+          "revision" in error &&
+          typeof error.revision === "string"
+            ? error.revision
+            : undefined;
+        if (writtenRevision) configRevision = writtenRevision;
         try {
           const saved = await responsePayload(await fetch("/api/config"));
-          if (epoch === loadEpoch && saved.format === "json") {
+          if (
+            writtenRevision &&
+            saved.revision === writtenRevision &&
+            epoch === loadEpoch &&
+            saved.format === "json"
+          ) {
             originalSnapshot = serializeConfig(JSON.parse(saved.raw));
             savedConfigUnconfirmed = false;
           }
@@ -661,7 +701,10 @@ async function applyWorkspace() {
           // Preserve the draft and show that the persisted baseline is unknown.
         }
       }
-      if (epoch === loadEpoch && revision === draftRevision)
+      if (
+        epoch === loadEpoch &&
+        (revision === draftRevision || hasErrorCode(error, "CONFIG_CHANGED"))
+      )
         errorMessage =
           error instanceof Error ? error.message : "failed to apply workspace";
     }
@@ -811,34 +854,67 @@ function defaultText(field: "provider" | "category") {
   <section class="topbar">
     <div class="topbar-heading">
       <h1>Config</h1>
-      <code class="config-path">{configPath || 'loading...'}</code>
+      <code class="config-path">{configPath || "loading..."}</code>
     </div>
 
     <div class="actions priority-actions">
       <div class="badges compact">
         <span>{format}</span>
-        <span class:dirty={unsavedChanges} data-testid="save-status">{persistenceStatus}</span>
+        <span class:dirty={unsavedChanges} data-testid="save-status"
+          >{persistenceStatus}</span
+        >
         <span data-testid="apply-status">{workspaceStatus}</span>
       </div>
-      <button type="button" class="primary-button icon-only-button" onclick={save} disabled={!draftValid || loading || saving || applying} aria-label={saving ? 'Saving config' : 'Save config'} data-tooltip={saving ? 'Saving config' : 'Save config'}>
+      <button
+        type="button"
+        class="primary-button icon-only-button"
+        onclick={save}
+        disabled={!draftValid || loading || saving || applying}
+        aria-label={saving ? "Saving config" : "Save config"}
+        data-tooltip={saving ? "Saving config" : "Save config"}
+      >
         <Save size={14} /><span>Save</span>
       </button>
-      <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={!draftValid || loading || saving || applying} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
+      <button
+        type="button"
+        class="primary-button icon-only-button"
+        onclick={applyWorkspace}
+        disabled={!draftValid || loading || saving || applying}
+        aria-label={applying ? "Applying workspace" : "Apply workspace"}
+        data-tooltip={applying ? "Applying workspace" : "Apply workspace"}
+      >
         <CheckCheck size={14} /><span>Apply</span>
       </button>
-      <button type="button" class="ghost-button icon-only-button" onclick={reload} disabled={loading || saving || applying || doctorLoading || ghReposLoading} aria-label="Reload" data-tooltip="Reload">
+      <button
+        type="button"
+        class="ghost-button icon-only-button"
+        onclick={reload}
+        disabled={loading ||
+          saving ||
+          applying ||
+          doctorLoading ||
+          ghReposLoading}
+        aria-label="Reload"
+        data-tooltip="Reload"
+      >
         <RotateCcw size={14} />
       </button>
     </div>
   </section>
 
-  <p class="muted operation-help">Save writes the JSON config. Apply saves it and updates the workspace.</p>
+  <p class="muted operation-help">
+    Save writes the JSON config. Apply saves it and updates the workspace.
+  </p>
   {#if applyProgress}
     <p class="status error" role="alert">
-      {applyProgress.configSaved ? 'Config was saved before Apply stopped.' : 'Config save was not completed.'}
-      {#if savedConfigUnconfirmed}Saved contents could not be confirmed. Reload to check the file; your draft is retained.{/if}
-      Completed: {applyProgress.completed.join(', ') || 'none'}. Stopped at: {applyProgress.failedStage}.
-      {#if applyProgress.failedStageMayHaveChanges}The stopped stage may have changed files.{/if}
+      {applyProgress.configSaved
+        ? "Config was saved before Apply stopped."
+        : "Config save was not completed."}
+      {#if savedConfigUnconfirmed}Saved contents could not be confirmed. Reload
+        to check the file; your draft is retained.{/if}
+      Completed: {applyProgress.completed.join(", ") || "none"}. Stopped at: {applyProgress.failedStage}.
+      {#if applyProgress.failedStageMayHaveChanges}The stopped stage may have
+        changed files.{/if}
       Completed changes were not rolled back. Your draft is still here.
     </p>
   {/if}
@@ -858,30 +934,61 @@ function defaultText(field: "provider" | "category") {
   <section class="workspace-shell">
     <section class="editor-shell">
       <div class="editor-header compact-header">
-        <h2>{configPath ? configPath.split('/').at(-1) : 'ghq-sector config'}</h2>
+        <h2>
+          {configPath ? configPath.split("/").at(-1) : "ghq-sector config"}
+        </h2>
         <div class="editor-tools">
           <div class="tabs segmented-tabs">
-            <button type="button" class:active={currentTab === 'visual'} onclick={() => switchTab('visual')} disabled={!draftValid}>Visual</button>
-            <button type="button" class:active={currentTab === 'raw'} onclick={() => switchTab('raw')}>Raw</button>
-            <button type="button" class:active={currentTab === 'diff'} onclick={() => switchTab('diff')} disabled={!draftValid}>Diff</button>
+            <button
+              type="button"
+              class:active={currentTab === "visual"}
+              onclick={() => switchTab("visual")}
+              disabled={!draftValid}>Visual</button
+            >
+            <button
+              type="button"
+              class:active={currentTab === "raw"}
+              onclick={() => switchTab("raw")}>Raw</button
+            >
+            <button
+              type="button"
+              class:active={currentTab === "diff"}
+              onclick={() => switchTab("diff")}
+              disabled={!draftValid}>Diff</button
+            >
           </div>
         </div>
       </div>
 
       {#if loading}
         <div class="placeholder editor-placeholder">Loading config...</div>
-      {:else if !draftValid && currentTab !== 'raw'}
-        <p class="placeholder">Return to Raw to repair the JSON. No old draft is shown.</p>
-      {:else if currentTab === 'diff'}
+      {:else if !draftValid && currentTab !== "raw"}
+        <p class="placeholder">
+          Return to Raw to repair the JSON. No old draft is shown.
+        </p>
+      {:else if currentTab === "diff"}
         <section class="diff-shell" aria-label="Changes from saved config">
-          {#if savedConfigUnconfirmed}<p class="muted">Diff uses the last confirmed saved config; current saved contents are unconfirmed.</p>{/if}
-          <DiffView originalJson={savedValue} currentJson={value} class="config-diff" />
+          {#if savedConfigUnconfirmed}<p class="muted">
+              Diff uses the last confirmed saved config; current saved contents
+              are unconfirmed.
+            </p>{/if}
+          <DiffView
+            originalJson={savedValue}
+            currentJson={value}
+            class="config-diff"
+          />
         </section>
-      {:else if currentTab === 'raw'}
-        <textarea class="raw-editor" aria-label="Raw JSON config" value={rawValue} oninput={(event) => editRaw(event.currentTarget.value)} readonly={format !== 'json'} spellcheck="false"></textarea>
+      {:else if currentTab === "raw"}
+        <textarea
+          class="raw-editor"
+          aria-label="Raw JSON config"
+          value={rawValue}
+          oninput={(event) => editRaw(event.currentTarget.value)}
+          readonly={format !== "json"}
+          spellcheck="false"></textarea>
       {:else if editorSchema}
         <JsonEditor
-          value={value}
+          {value}
           onchange={editVisual}
           schema={editorSchema}
           height="min(78vh, 920px)"
@@ -900,23 +1007,69 @@ function defaultText(field: "provider" | "category") {
         <div class="panel-header compact-panel-header">
           <h3>Workspace plan</h3>
           <div class="inline-actions">
-            <button type="button" class="ghost-button icon-only-button" onclick={() => previewWorkspace()} disabled={!draftValid || loading || saving || applying} aria-label={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'} data-tooltip={previewLoading ? 'Refreshing workspace plan' : 'Refresh workspace plan'}>
+            <button
+              type="button"
+              class="ghost-button icon-only-button"
+              onclick={() => previewWorkspace()}
+              disabled={!draftValid || loading || saving || applying}
+              aria-label={previewLoading
+                ? "Refreshing workspace plan"
+                : "Refresh workspace plan"}
+              data-tooltip={previewLoading
+                ? "Refreshing workspace plan"
+                : "Refresh workspace plan"}
+            >
               <RotateCcw size={14} />
             </button>
-            <button type="button" class="primary-button icon-only-button" onclick={applyWorkspace} disabled={!draftValid || loading || saving || applying} aria-label={applying ? 'Applying workspace' : 'Apply workspace'} data-tooltip={applying ? 'Applying workspace' : 'Apply workspace'}>
+            <button
+              type="button"
+              class="primary-button icon-only-button"
+              onclick={applyWorkspace}
+              disabled={!draftValid || loading || saving || applying}
+              aria-label={applying ? "Applying workspace" : "Apply workspace"}
+              data-tooltip={applying ? "Applying workspace" : "Apply workspace"}
+            >
               <CheckCheck size={14} />
             </button>
           </div>
         </div>
-        <p class="muted compact-note" data-testid="preview-status">{!draftValid ? 'Preview unavailable: invalid JSON.' : previewLoading ? 'Updating plan for the current draft…' : previewResult && previewSnapshot === currentSnapshot ? 'Plan matches the current draft.' : 'Plan is out of date; refresh to compare this draft.'}</p>
+        <p class="muted compact-note" data-testid="preview-status">
+          {!draftValid
+            ? "Preview unavailable: invalid JSON."
+            : previewLoading
+              ? "Updating plan for the current draft…"
+              : previewConflict
+                ? previewConflict
+                : previewResult && previewSnapshot === currentSnapshot
+                  ? "Plan matches the current draft."
+                  : "Plan is out of date; refresh to compare this draft."}
+        </p>
         {#if previewResult && previewSnapshot === currentSnapshot}
           <dl class="kv-list compact-stats">
-            <div><dt>Total repos</dt><dd>{previewResult.summary.totalRepos}</dd></div>
-            <div><dt>Ready</dt><dd>{previewResult.summary.linkableRepos}</dd></div>
-            <div><dt>Will fetch</dt><dd>{previewResult.summary.missingRepos}</dd></div>
-            <div><dt>Resources</dt><dd>{previewResult.summary.resourcesCount}</dd></div>
-            <div><dt>Skills</dt><dd>{previewResult.summary.agentSkillsLinkedCount}</dd></div>
-            <div><dt>Skill duplicates</dt><dd>{previewResult.summary.agentSkillsDuplicateCount}</dd></div>
+            <div>
+              <dt>Total repos</dt>
+              <dd>{previewResult.summary.totalRepos}</dd>
+            </div>
+            <div>
+              <dt>Ready</dt>
+              <dd>{previewResult.summary.linkableRepos}</dd>
+            </div>
+            <div>
+              <dt>Will fetch</dt>
+              <dd>{previewResult.summary.missingRepos}</dd>
+            </div>
+            <div>
+              <dt>Resources</dt>
+              <dd>{previewResult.summary.resourcesCount}</dd>
+            </div>
+            <div>
+              <dt>Skills</dt>
+              <dd>{previewResult.summary.agentSkillsLinkedCount}</dd>
+            </div>
+            <div>
+              <dt>Skill duplicates</dt>
+              <dd>{previewResult.summary.agentSkillsDuplicateCount}</dd>
+            </div>
           </dl>
           {#if applyResult}
             <div class="plan-apply-summary">
@@ -940,11 +1093,15 @@ function defaultText(field: "provider" | "category") {
                 </div>
                 <div>
                   <dt>.agents skills</dt>
-                  <dd>{applyResult.agentSkills.byProvider.agents.linkedCount}</dd>
+                  <dd>
+                    {applyResult.agentSkills.byProvider.agents.linkedCount}
+                  </dd>
                 </div>
                 <div>
                   <dt>.claude skills</dt>
-                  <dd>{applyResult.agentSkills.byProvider.claude.linkedCount}</dd>
+                  <dd>
+                    {applyResult.agentSkills.byProvider.claude.linkedCount}
+                  </dd>
                 </div>
                 <div>
                   <dt>Skill duplicates</dt>
@@ -957,7 +1114,9 @@ function defaultText(field: "provider" | "category") {
                 {#if applyResult.agentSkills.byProvider.agents.linkedCount > 0 || applyResult.agentSkills.byProvider.claude.linkedCount > 0 || applyResult.agentSkills.duplicateCount > 0}
                   <div class="field-span-2">
                     <dt>Skills report</dt>
-                    <dd><code>{applyResult.agentSkills.reports.markdown}</code></dd>
+                    <dd>
+                      <code>{applyResult.agentSkills.reports.markdown}</code>
+                    </dd>
                   </div>
                 {/if}
               </dl>
@@ -965,30 +1124,44 @@ function defaultText(field: "provider" | "category") {
           {/if}
           <ul class="check-list compact-list plan-list">
             {#each previewResult.repoLinks.slice(0, 6) as repo}
-              <li class={repo.status === 'ready' ? 'check-success' : 'check-info'}>
+              <li
+                class={repo.status === "ready" ? "check-success" : "check-info"}
+              >
                 <strong>{repo.category}/{repo.name}</strong>
-                <small>{repo.status === 'ready' ? 'already available / ready to link' : 'will fetch via ghq get before linking'}</small>
+                <small
+                  >{repo.status === "ready"
+                    ? "already available / ready to link"
+                    : "will fetch via ghq get before linking"}</small
+                >
               </li>
             {/each}
           </ul>
           {#if previewResult.repoLinks.length > 6}
-            <p class="muted compact-note">+{previewResult.repoLinks.length - 6} more repos in plan</p>
+            <p class="muted compact-note">
+              +{previewResult.repoLinks.length - 6} more repos in plan
+            </p>
           {/if}
           {#if previewResult.agentSkills.enabled}
             <p class="muted compact-note">
               agent skills →
               {#if previewResult.agentSkills.providers?.includes("agents")}
-                .agents {previewResult.agentSkills.summary.byProvider.agents.selectedCount}
+                .agents {previewResult.agentSkills.summary.byProvider.agents
+                  .selectedCount}
               {/if}
               {#if previewResult.agentSkills.providers?.includes("claude")}
-                {#if previewResult.agentSkills.providers?.includes("agents")}, {/if}
-                .claude {previewResult.agentSkills.summary.byProvider.claude.selectedCount}
+                {#if previewResult.agentSkills.providers?.includes("agents")},
+                {/if}
+                .claude {previewResult.agentSkills.summary.byProvider.claude
+                  .selectedCount}
               {/if}
-              , duplicates {previewResult.agentSkills.summary.duplicateCount}, warnings {previewResult.agentSkills.summary.warningCount}
+              , duplicates {previewResult.agentSkills.summary.duplicateCount},
+              warnings {previewResult.agentSkills.summary.warningCount}
             </p>
           {/if}
           {#if previewResult.codeWorkspace.enabled && previewResult.codeWorkspace.path}
-            <p class="muted compact-note">code-workspace → <code>{previewResult.codeWorkspace.path}</code></p>
+            <p class="muted compact-note">
+              code-workspace → <code>{previewResult.codeWorkspace.path}</code>
+            </p>
           {/if}
         {:else}
           <p class="muted">No workspace plan yet.</p>
@@ -997,23 +1170,68 @@ function defaultText(field: "provider" | "category") {
 
       <details class="panel disclosure choices-panel">
         <summary><strong>Provider and category choices</strong></summary>
-        <p class="muted compact-note">Suggestions follow this draft. Custom git hosts and categories stay editable.</p>
-        <label class="field-label"><span>Default provider</span>
-          <input aria-label="Default provider" list="provider-choices" value={defaultText('provider')} oninput={(event) => editDefault('provider', event.currentTarget.value)} disabled={!draftObjectReady || loading || saving || applying} />
+        <p class="muted compact-note">
+          Suggestions follow this draft. Custom git hosts and categories stay
+          editable.
+        </p>
+        <label class="field-label"
+          ><span>Default provider</span>
+          <input
+            aria-label="Default provider"
+            list="provider-choices"
+            value={defaultText("provider")}
+            oninput={(event) =>
+              editDefault("provider", event.currentTarget.value)}
+            disabled={!draftObjectReady || loading || saving || applying}
+          />
         </label>
-        <datalist id="provider-choices">{#each providerChoices as provider}<option value={String(provider)}></option>{/each}</datalist>
-        <label class="field-label"><span>Default category</span>
-          <input aria-label="Default category" list="category-choices" value={defaultText('category')} oninput={(event) => editDefault('category', event.currentTarget.value)} disabled={!draftObjectReady || loading || saving || applying} />
+        <datalist id="provider-choices"
+          >{#each providerChoices as provider}<option value={String(provider)}
+            ></option>{/each}</datalist
+        >
+        <label class="field-label"
+          ><span>Default category</span>
+          <input
+            aria-label="Default category"
+            list="category-choices"
+            value={defaultText("category")}
+            oninput={(event) =>
+              editDefault("category", event.currentTarget.value)}
+            disabled={!draftObjectReady || loading || saving || applying}
+          />
         </label>
-        <datalist id="category-choices">{#each categories as category}<option value={category}></option>{/each}</datalist>
+        <datalist id="category-choices"
+          >{#each categories as category}<option value={category}
+            ></option>{/each}</datalist
+        >
         {#each repoChoices as { index, repo } (index)}
           <fieldset class="repo-choices">
-            <legend>Repository {index + 1}: {String(repo.owner ?? '')}/{String(repo.name ?? '')}</legend>
-            <label class="field-label"><span>Provider</span>
-              <input aria-label={`Repository ${index + 1} provider`} list="provider-choices" value={typeof repo.provider === 'string' ? repo.provider : ''} oninput={(event) => editRepoChoice(index, 'provider', event.currentTarget.value)} disabled={loading || saving || applying} />
+            <legend
+              >Repository {index + 1}: {String(repo.owner ?? "")}/{String(
+                repo.name ?? "",
+              )}</legend
+            >
+            <label class="field-label"
+              ><span>Provider</span>
+              <input
+                aria-label={`Repository ${index + 1} provider`}
+                list="provider-choices"
+                value={typeof repo.provider === "string" ? repo.provider : ""}
+                oninput={(event) =>
+                  editRepoChoice(index, "provider", event.currentTarget.value)}
+                disabled={loading || saving || applying}
+              />
             </label>
-            <label class="field-label"><span>Category</span>
-              <input aria-label={`Repository ${index + 1} category`} list="category-choices" value={typeof repo.category === 'string' ? repo.category : ''} oninput={(event) => editRepoChoice(index, 'category', event.currentTarget.value)} disabled={loading || saving || applying} />
+            <label class="field-label"
+              ><span>Category</span>
+              <input
+                aria-label={`Repository ${index + 1} category`}
+                list="category-choices"
+                value={typeof repo.category === "string" ? repo.category : ""}
+                oninput={(event) =>
+                  editRepoChoice(index, "category", event.currentTarget.value)}
+                disabled={loading || saving || applying}
+              />
             </label>
           </fieldset>
         {/each}
@@ -1025,9 +1243,16 @@ function defaultText(field: "provider" | "category") {
             <ChevronRight size={14} class="summary-chevron" />
             <Stethoscope size={14} />
             <strong>Doctor</strong>
-            <small>{doctorResult?.ok ? 'Healthy' : 'Warn'}</small>
+            <small>{doctorResult?.ok ? "Healthy" : "Warn"}</small>
           </span>
-          <button type="button" class="ghost-button inline-button icon-only-button" onclick={loadDoctor} disabled={doctorLoading || saving || applying} aria-label={doctorLoading ? 'Loading' : 'Refresh'} data-tooltip={doctorLoading ? 'Loading' : 'Refresh'}>
+          <button
+            type="button"
+            class="ghost-button inline-button icon-only-button"
+            onclick={loadDoctor}
+            disabled={doctorLoading || saving || applying}
+            aria-label={doctorLoading ? "Loading" : "Refresh"}
+            data-tooltip={doctorLoading ? "Loading" : "Refresh"}
+          >
             <RotateCcw size={14} />
           </button>
         </summary>
@@ -1039,7 +1264,9 @@ function defaultText(field: "provider" | "category") {
           </div>
           <ul class="check-list compact-list">
             {#each doctorResult.checks as check}
-              <li class={`check-${check.level}`}><strong>{check.scope}</strong>: {check.message}</li>
+              <li class={`check-${check.level}`}>
+                <strong>{check.scope}</strong>: {check.message}
+              </li>
             {/each}
           </ul>
         {:else}
@@ -1053,9 +1280,24 @@ function defaultText(field: "provider" | "category") {
             <ChevronRight size={14} class="summary-chevron" />
             <FolderGit2 size={14} />
             <strong>Repo presets</strong>
-            <small>{ghAvailable ? `${ghRepos.length} repos` : 'template only'}</small>
+            <small
+              >{ghAvailable
+                ? `${ghRepos.length} repos`
+                : "template only"}</small
+            >
           </span>
-          <button type="button" class="ghost-button inline-button icon-only-button" onclick={() => loadGhRepos()} disabled={ghReposLoading || saving || applying} aria-label={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'} data-tooltip={ghReposLoading ? 'Loading GitHub repositories' : 'Refresh GitHub repositories'}>
+          <button
+            type="button"
+            class="ghost-button inline-button icon-only-button"
+            onclick={() => loadGhRepos()}
+            disabled={ghReposLoading || saving || applying}
+            aria-label={ghReposLoading
+              ? "Loading GitHub repositories"
+              : "Refresh GitHub repositories"}
+            data-tooltip={ghReposLoading
+              ? "Loading GitHub repositories"
+              : "Refresh GitHub repositories"}
+          >
             <RotateCcw size={14} />
           </button>
         </summary>
@@ -1063,7 +1305,8 @@ function defaultText(field: "provider" | "category") {
           <div class="repo-presets-actions">
             <p class="repo-presets-hint">
               {#if ghAvailable}
-                Use presets to insert complete repo objects without editing repos manually.
+                Use presets to insert complete repo objects without editing
+                repos manually.
               {:else}
                 gh is unavailable, so you can add an empty object as a fallback.
               {/if}
@@ -1074,8 +1317,8 @@ function defaultText(field: "provider" | "category") {
                 class="ghost-button icon-only-button repo-template-button"
                 onclick={addRepoTemplate}
                 disabled={!draftValid || loading || saving || applying}
-                aria-label={'Add empty object'}
-                data-tooltip={'Add empty object'}
+                aria-label={"Add empty object"}
+                data-tooltip={"Add empty object"}
               >
                 <Plus size={14} />
               </button>
@@ -1089,34 +1332,55 @@ function defaultText(field: "provider" | "category") {
                 <select
                   bind:value={ghSelectedOwner}
                   onchange={(event) => {
-                    ghSelectedRepo = '';
-                    loadGhRepos((event.currentTarget as HTMLSelectElement).value);
+                    ghSelectedRepo = "";
+                    loadGhRepos(
+                      (event.currentTarget as HTMLSelectElement).value,
+                    );
                   }}
                 >
                   {#each ghAccounts as account}
-                    <option value={account.login}>{account.login}{account.active ? ' (active)' : ''}</option>
+                    <option value={account.login}
+                      >{account.login}{account.active
+                        ? " (active)"
+                        : ""}</option
+                    >
                   {/each}
                 </select>
               </label>
 
               <label class="field-label">
                 <span>Filter</span>
-                <input bind:value={ghRepoFilter} placeholder="Filter repos" disabled={ghReposLoading} />
+                <input
+                  bind:value={ghRepoFilter}
+                  placeholder="Filter repos"
+                  disabled={ghReposLoading}
+                />
               </label>
 
               <label class="field-label field-span-2">
                 <span>Repository</span>
                 <select bind:value={ghSelectedRepo} disabled={ghReposLoading}>
-                  <option value="">{ghReposLoading ? 'Loading repositories…' : 'Select repository'}</option>
+                  <option value=""
+                    >{ghReposLoading
+                      ? "Loading repositories…"
+                      : "Select repository"}</option
+                  >
                   {#each filteredGhRepos as repo}
-                    <option value={repo.nameWithOwner}>{repo.nameWithOwner}{repo.isPrivate ? ' • private' : ''}</option>
+                    <option value={repo.nameWithOwner}
+                      >{repo.nameWithOwner}{repo.isPrivate
+                        ? " • private"
+                        : ""}</option
+                    >
                   {/each}
                 </select>
               </label>
 
               <label class="field-label">
                 <span>Category</span>
-                <select bind:value={ghSelectedCategory} disabled={categories.length === 0}>
+                <select
+                  bind:value={ghSelectedCategory}
+                  disabled={categories.length === 0}
+                >
                   {#if categories.length === 0}
                     <option value="">No categories</option>
                   {:else}
@@ -1131,7 +1395,11 @@ function defaultText(field: "provider" | "category") {
                 {#if selectedRepoPreview}
                   <div class="repo-preview-header">
                     <strong>{selectedRepoPreview.nameWithOwner}</strong>
-                    <span class:private-badge={selectedRepoPreview.isPrivate}>{selectedRepoPreview.isPrivate ? 'private' : 'public'}</span>
+                    <span class:private-badge={selectedRepoPreview.isPrivate}
+                      >{selectedRepoPreview.isPrivate
+                        ? "private"
+                        : "public"}</span
+                    >
                   </div>
                   <dl class="repo-preview-meta">
                     <div>
@@ -1140,7 +1408,7 @@ function defaultText(field: "provider" | "category") {
                     </div>
                     <div>
                       <dt>Category</dt>
-                      <dd>{selectedRepoPreview.category || '—'}</dd>
+                      <dd>{selectedRepoPreview.category || "—"}</dd>
                     </div>
                     <div class="field-span-2">
                       <dt>URL</dt>
@@ -1148,7 +1416,10 @@ function defaultText(field: "provider" | "category") {
                     </div>
                   </dl>
                 {:else if ghReposLoading}
-                  <span>Loading repositories for {ghSelectedOwner || 'selected owner'}…</span>
+                  <span
+                    >Loading repositories for {ghSelectedOwner ||
+                      "selected owner"}…</span
+                  >
                 {:else if ghRepoFilter && filteredGhRepos.length === 0}
                   <span>No repositories matched “{ghRepoFilter}”.</span>
                 {:else}
@@ -1157,16 +1428,28 @@ function defaultText(field: "provider" | "category") {
               </div>
             </div>
 
-            <button type="button" class="primary-button preset-button repo-add-button" onclick={addSelectedGhRepo} disabled={!draftValid || loading || saving || applying || ghReposLoading || !ghSelectedRepo}>
+            <button
+              type="button"
+              class="primary-button preset-button repo-add-button"
+              onclick={addSelectedGhRepo}
+              disabled={!draftValid ||
+                loading ||
+                saving ||
+                applying ||
+                ghReposLoading ||
+                !ghSelectedRepo}
+            >
               <FolderGit2 size={14} />
               <span>Add selected repo</span>
             </button>
           {:else}
-            <p class="muted">gh is not available. Only adding an empty repo template is enabled.</p>
+            <p class="muted">
+              gh is not available. Only adding an empty repo template is
+              enabled.
+            </p>
           {/if}
         </div>
       </details>
-
     </aside>
   </section>
 </main>

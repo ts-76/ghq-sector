@@ -8,6 +8,8 @@ Diff compares the draft with the latest acknowledged saved configuration. Succes
 
 Workspace Preview identifies whether it matches the current draft. Editing invalidates the old plan immediately. Older asynchronous responses cannot restore it. Save/Apply busy responses retain the draft and offer a retry.
 
+Save and Apply compare the revision from the last acknowledged config with the file under the editor lock. If the file has changed, the editor displays a conflict and keeps the draft. Preview reports duplicate or overlapping configured link destinations. Apply checks configured link destinations and existing workspace entries before saving.
+
 ## Choices and upstream compatibility
 
 The CLI accepts custom git hosts and category names. These fields have draft-derived schema examples and free-form input suggestions for both defaults and each repository, not a closed enum. The published FormField does not render schema examples, so the companion choices panel supplies native datalists while preserving unrestricted text input. The only closed provider enum is `agentSkills.providers`: `agents` and `claude`, matching the CLI validation schema.
