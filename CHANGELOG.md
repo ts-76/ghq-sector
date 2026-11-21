@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/ts-76/ghq-sector/compare/v1.4.0...v1.4.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* harden workspace sync and local editor updates ([2891971](https://github.com/ts-76/ghq-sector/commit/289197117c20b89d08c4d1a721b8f88044fa6de6))
+
 ## [1.4.0](https://github.com/ts-76/ghq-sector/compare/v1.3.0...v1.4.0) (2026-10-03)
 
 
