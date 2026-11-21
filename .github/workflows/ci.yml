@@ -53,6 +53,11 @@ jobs:
 
       - name: Build
         run: bun run build
+      - name: Verify the locked npm stage publisher
+        run: |
+          npm ci --prefix tools/publisher --ignore-scripts --no-audit --no-fund
+          npm audit --prefix tools/publisher --audit-level=low
+          node --test tools/publisher/verify-stage.mjs
 
       - name: Setup minimum supported Node
         uses: actions/setup-node@v5

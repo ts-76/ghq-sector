@@ -1,7 +1,7 @@
 name: Release
 
 # Automatic publication and tag creation remain disabled.
-# A separately approved manual path can stage only ghq-sector 1.4.0.
+# A manual dispatch stages the exact verified version and commit.
 # The package owner must complete publication with npm 2FA.
 
 on:
@@ -11,17 +11,17 @@ on:
   workflow_dispatch:
     inputs:
       prepare_npm_stage:
-        description: Prepare the reviewed ghq-sector 1.4.0 npm stage
+        description: Prepare the reviewed ghq-sector npm stage
         type: boolean
         default: false
       expected_sha:
         description: Exact reviewed main SHA (required for stage preparation)
         type: string
         default: ''
-      publisher_risk_consent:
-        description: Accept the documented 1.4.0-only npm publisher risks
-        type: boolean
-        default: false
+      expected_version:
+        description: Exact ghq-sector version from the merged release PR
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -33,6 +33,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   EXPECTED_RELEASE_SHA: ${{ inputs.expected_sha }}
+  EXPECTED_RELEASE_VERSION: ${{ inputs.expected_version }}
 
 jobs:
   release-pr:
@@ -56,7 +57,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 24.19.0
+          node-version: 24.22.3
       - name: Install audited release tooling
         run: bun install --frozen-lockfile
       - name: Audit release tooling
@@ -70,6 +71,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      tarball_sha256: ${{ steps.prepare.outputs.sha256 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -82,7 +85,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 24.19.0
+          node-version: 24.22.3
       - name: Reject changed source before stage preparation
         if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
         run: node -e 'if (!/^[a-f0-9]{40}$/.test(process.env.EXPECTED_RELEASE_SHA || "") || process.env.EXPECTED_RELEASE_SHA !== process.env.GITHUB_SHA) process.exit(1)'
@@ -106,19 +109,20 @@ jobs:
       - name: Check package tarball
         run: bun run pack:check
       - name: Pack accepted artifact once
+        id: prepare
         if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
         run: node scripts/npm-stage.mjs prepare
       - name: Retain accepted artifact
         if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage
         uses: actions/upload-artifact@v4
         with:
-          name: ghq-sector-1.4.0-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ghq-sector-${{ inputs.expected_version }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: npm-stage-artifact/
           if-no-files-found: error
 
   stage:
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage && github.ref == 'refs/heads/main' && vars.GHQ_SECTOR_STAGING_ENABLED == 'true' && inputs.publisher_risk_consent
+    if: github.event_name == 'workflow_dispatch' && inputs.prepare_npm_stage && github.ref == 'refs/heads/main' && vars.GHQ_SECTOR_STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: npm-stage
@@ -131,10 +135,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: 24.19.0
+          node-version: 24.22.3
       - uses: actions/download-artifact@v4
         with:
-          name: ghq-sector-1.4.0-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ghq-sector-${{ inputs.expected_version }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: npm-stage-artifact/
       - name: Install locked official publisher without scripts
         run: |
@@ -150,7 +154,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GHQ_SECTOR_STAGING_ENABLED: ${{ vars.GHQ_SECTOR_STAGING_ENABLED }}
-          PUBLISHER_RISK_CONSENT: ${{ inputs.publisher_risk_consent }}
+          PREPARED_TARBALL_SHA256: ${{ needs.verify.outputs.tarball_sha256 }}
         run: node scripts/npm-stage.mjs stage
       - name: Retain raw audit and stage receipt
         if: always()

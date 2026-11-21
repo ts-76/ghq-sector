@@ -1,5 +1,8 @@
 # Manual staging of ghq-sector 1.4.0
 
+This is the historical procedure for the published 1.4.0 package. See
+[Release PRs and npm staging](releasing.md) for the current workflow.
+
 This proposal adds a manual, one-version publication route. Ordinary pushes and
 release PR merges still cannot tag or publish. The existing application, UI and
 release-tool audits retain their moderate threshold and must pass with zero
