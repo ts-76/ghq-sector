@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
-const policy = await readJson(join(root, "tools/publisher/risk-scope.json"));
+const publisherRoot = join(root, "tools/publisher");
 const registry = "https://registry.npmjs.org/";
 
 export function requireSource(actual, expected) {
@@ -16,59 +22,15 @@ export function requireSource(actual, expected) {
   assert.equal(actual, expected, "Source changed since authorization");
 }
 
-export function requirePublisherAudit(report, consent, version) {
+export function requirePublisherAudit(report) {
   assert.ok(!report.error, "Publisher audit service failed");
   assert.ok(report.vulnerabilities && report.metadata?.vulnerabilities);
   assert.equal(
     report.metadata.vulnerabilities.total,
-    Object.keys(report.vulnerabilities).length,
-    "Incomplete audit report",
+    0,
+    "Publisher audit reported vulnerabilities",
   );
-  if (report.metadata.vulnerabilities.total === 0) return;
-  assert.equal(
-    consent,
-    "true",
-    "Explicit one-off publisher risk consent required",
-  );
-  assert.equal(
-    version,
-    policy.version,
-    "Risk consent only covers ghq-sector 1.4.0",
-  );
-  const packages = new Set([
-    ...Object.keys(policy.packages),
-    ...policy.propagated,
-  ]);
-  const advisories = new Set(policy.advisories);
-  for (const [name, entry] of Object.entries(report.vulnerabilities)) {
-    assert.ok(packages.has(name), `Unreviewed publisher package: ${name}`);
-    assert.notEqual(
-      entry.severity,
-      "critical",
-      "Critical risk is outside this scope",
-    );
-    assert.ok(
-      Array.isArray(entry.via) && entry.via.length > 0,
-      "Incomplete advisory chain",
-    );
-    assert.ok(
-      ["info", "low", "moderate", "high"].includes(entry.severity),
-      "Unknown severity",
-    );
-    for (const via of entry.via) {
-      if (typeof via === "string") {
-        assert.ok(packages.has(via), `Unreviewed propagation: ${via}`);
-      } else {
-        const id = via.url?.match(
-          /^https:\/\/github\.com\/advisories\/(GHSA-[a-z0-9-]+)$/,
-        )?.[1];
-        assert.ok(
-          advisories.has(id),
-          `Unreviewed publisher advisory: ${via.url}`,
-        );
-      }
-    }
-  }
+  assert.deepEqual(report.vulnerabilities, {}, "Incomplete audit report");
 }
 
 export function requireEnvironmentReview(environment, rules) {
@@ -104,29 +66,18 @@ export function requireEvidence(evidence, inspected, runId, runAttempt) {
   );
 }
 
-export async function inspectArtifact(tarball, sourceSha) {
+async function readArtifact(tarball, sourceSha, version) {
   const bytes = await readFile(tarball);
-  assert.equal(
-    createHash("sha256").update(bytes).digest("hex"),
-    policy.artifact.sha256,
-    "Tarball differs from the accepted 1.4.0 artifact",
-  );
-  assert.equal(
-    `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
-    policy.artifact.integrity,
-    "Tarball integrity differs from acceptance",
-  );
+  const tarOptions = { input: bytes, encoding: "utf8" };
   const manifest = JSON.parse(
-    execFileSync("tar", ["-xOf", tarball, "package/package.json"], {
-      encoding: "utf8",
-    }),
+    execFileSync("tar", ["-xOzf", "-", "package/package.json"], tarOptions),
   );
   assert.equal(manifest.name, "ghq-sector");
-  assert.equal(manifest.version, policy.version);
+  assert.equal(manifest.version, version, "Artifact version differs");
   assert.equal(manifest.license, "MIT");
   for (const alias of ["gsec", "ghq-sector"])
     assert.equal(manifest.bin[alias], "dist/cli/main.mjs");
-  const files = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" })
+  const files = execFileSync("tar", ["-tzf", "-"], tarOptions)
     .trim()
     .split("\n");
   for (const file of files) {
@@ -146,33 +97,16 @@ export async function inspectArtifact(tarball, sourceSha) {
     files.some((file) => file.startsWith("package/dist/ui-dist/assets/")),
   );
   return {
-    name: manifest.name,
-    version: manifest.version,
-    sourceSha,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    bytes,
+    manifest,
+    inspected: {
+      name: manifest.name,
+      version,
+      sourceSha,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    },
   };
-}
-
-export function stageArguments(tarball, fixture) {
-  return [
-    "stage",
-    "publish",
-    resolve(tarball),
-    "--ignore-scripts",
-    "--provenance",
-    "--access=public",
-    "--tag=latest",
-    "--json",
-    `--registry=${registry}`,
-    `--userconfig=${join(fixture, "user.npmrc")}`,
-    `--globalconfig=${join(fixture, "global.npmrc")}`,
-    `--cache=${join(fixture, "empty-cache")}`,
-    "--proxy=null",
-    "--https-proxy=null",
-    "--fetch-retries=0",
-    "--fetch-timeout=30000",
-  ];
 }
 
 export function publisherEnvironment(env) {
@@ -222,7 +156,7 @@ async function getJson(url, token) {
 async function main(mode) {
   assert.equal(
     process.versions.node,
-    "24.19.0",
+    "24.22.3",
     "Use the reviewed Node version",
   );
   assert.equal(process.env.GITHUB_ACTIONS, "true");
@@ -241,31 +175,44 @@ async function main(mode) {
   );
   assert.match(process.env.GITHUB_RUN_ID || "", /^[0-9]+$/);
   assert.match(process.env.GITHUB_RUN_ATTEMPT || "", /^[1-9][0-9]*$/);
+  const version = process.env.EXPECTED_RELEASE_VERSION || "";
+  assert.match(version, /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/);
+  assert.equal((await readJson("package.json")).version, version);
+  assert.equal((await readJson(".release-please-manifest.json"))["."], version);
   const artifactRoot = resolve("npm-stage-artifact");
-  const tarball = join(artifactRoot, "ghq-sector-1.4.0.tgz");
+  const tarball = join(artifactRoot, `ghq-sector-${version}.tgz`);
   if (mode === "prepare") {
-    assert.equal((await readJson("package.json")).version, policy.version);
     await mkdir(artifactRoot, { recursive: true });
     execFileSync(
       "bun",
       ["pm", "pack", "--ignore-scripts", "--filename", tarball, "--quiet"],
       { env: publisherEnvironment(process.env), stdio: "pipe" },
     );
-    const evidence = await inspectArtifact(tarball, sha);
-    evidence.runId = process.env.GITHUB_RUN_ID;
-    evidence.runAttempt = process.env.GITHUB_RUN_ATTEMPT;
+    const { inspected } = await readArtifact(tarball, sha, version);
+    const evidence = {
+      ...inspected,
+      runId: process.env.GITHUB_RUN_ID,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    };
     await writeFile(
       join(artifactRoot, "evidence.json"),
       `${JSON.stringify(evidence, null, 2)}\n`,
     );
+    await appendFile(process.env.GITHUB_OUTPUT, `sha256=${evidence.sha256}\n`);
     console.log(JSON.stringify(evidence));
     return;
   }
   assert.equal(mode, "stage");
   assert.equal(process.env.GHQ_SECTOR_STAGING_ENABLED, "true");
-  assert.equal(process.env.PUBLISHER_RISK_CONSENT, "true");
   const evidence = await readJson(join(artifactRoot, "evidence.json"));
-  const inspected = await inspectArtifact(tarball, sha);
+  const { bytes, manifest, inspected } = await readArtifact(
+    tarball,
+    sha,
+    version,
+  );
+  const preparedSha256 = process.env.PREPARED_TARBALL_SHA256 || "";
+  assert.match(preparedSha256, /^[a-f0-9]{64}$/);
+  assert.equal(inspected.sha256, preparedSha256, "Tarball from verify changed");
   requireEvidence(
     evidence,
     inspected,
@@ -286,94 +233,71 @@ async function main(mode) {
   requireEnvironmentReview(environment, rules);
   const metadata = await getJson(`${registry}ghq-sector`);
   assert.ok(
-    !metadata.versions?.[policy.version],
+    !metadata.versions?.[version],
     "Version is already public; do not resubmit",
   );
   assert.ok(metadata.maintainers?.some((owner) => owner.name === "ts-76"));
-  const cli = join(root, "tools/publisher/node_modules/npm/bin/npm-cli.js");
-  assert.equal(
-    execFileSync(process.execPath, [cli, "--version"], {
-      encoding: "utf8",
-    }).trim(),
-    policy.npmVersion,
-  );
-  for (const [name, version] of Object.entries(policy.packages))
-    assert.equal(
-      (
-        await readJson(
-          join(
-            root,
-            "tools/publisher/node_modules/npm/node_modules",
-            name,
-            "package.json",
-          ),
-        )
-      ).version,
-      version,
-    );
   const fixture = await mkdtemp(join(tmpdir(), "ghq-sector-stage-"));
   await writeFile(join(fixture, "user.npmrc"), `registry=${registry}\n`);
   await writeFile(join(fixture, "global.npmrc"), "");
-  const cleanEnv = publisherEnvironment(process.env);
+  const cleanEnv = { ...publisherEnvironment(process.env), HOME: fixture };
   const configArgs = [
     `--userconfig=${join(fixture, "user.npmrc")}`,
     `--globalconfig=${join(fixture, "global.npmrc")}`,
     `--cache=${join(fixture, "audit-cache")}`,
   ];
   const audit = spawnSync(
-    process.execPath,
-    [cli, "audit", "--json", "--audit-level=moderate", ...configArgs],
+    "npm",
+    [
+      "audit",
+      "--json",
+      "--audit-level=low",
+      `--registry=${registry}`,
+      "--fetch-retries=0",
+      "--fetch-timeout=30000",
+      ...configArgs,
+    ],
     {
-      cwd: join(root, "tools/publisher"),
-      env: Object.fromEntries(
-        Object.entries(cleanEnv).filter(
-          ([key]) =>
-            !key.startsWith("ACTIONS_ID_TOKEN") && key !== "GITHUB_ACTIONS",
-        ),
-      ),
+      cwd: publisherRoot,
+      env: { PATH: cleanEnv.PATH, HOME: fixture },
       encoding: "utf8",
       timeout: 60000,
     },
   );
-  assert.ok(
-    audit.status === 0 || audit.status === 1,
-    "Publisher audit did not complete",
-  );
-  await writeFile("publisher-audit.json", audit.stdout);
-  requirePublisherAudit(
-    JSON.parse(audit.stdout),
-    process.env.PUBLISHER_RISK_CONSENT,
-    evidence.version,
-  );
+  if (audit.stdout) await writeFile("publisher-audit.json", audit.stdout);
+  assert.equal(audit.status, 0, "Publisher audit failed");
+  requirePublisherAudit(JSON.parse(audit.stdout));
   const result = spawnSync(
     process.execPath,
-    [cli, ...stageArguments(tarball, fixture)],
-    { cwd: fixture, env: cleanEnv, encoding: "utf8", timeout: 120000 },
+    [join(publisherRoot, "submit-stage.mjs"), JSON.stringify(manifest)],
+    {
+      cwd: fixture,
+      input: bytes,
+      env: cleanEnv,
+      encoding: "utf8",
+      timeout: 120000,
+    },
   );
-  // npm may print authentication diagnostics; do not echo raw output or URLs.
+  // The publisher emits only the stage ID. Authentication diagnostics may contain credentials.
   assert.equal(
     result.status,
     0,
-    "Stage failed; inspect npm/Actions authentication settings before retrying",
+    result.status === 2
+      ? "GitHub-to-npm OIDC exchange failed"
+      : "Stage or provenance failed; inspect the registry before retrying",
   );
-  const receipt = JSON.parse(result.stdout);
-  const item = Array.isArray(receipt)
-    ? receipt[0]
-    : receipt["ghq-sector"] || receipt;
-  assert.equal(item.name, "ghq-sector");
-  assert.equal(item.version, policy.version);
-  assert.equal(item.integrity, evidence.integrity);
-  assert.ok(
-    item.stageId,
+  const stageId = result.stdout.trim();
+  assert.match(
+    stageId,
+    /^[a-zA-Z0-9-]{1,100}$/,
     "Stage ID missing; verify remote state before retrying",
   );
-  assert.deepEqual(await inspectArtifact(tarball, sha), inspected);
   await writeFile(
     "npm-stage-receipt.json",
-    `${JSON.stringify({ ...evidence, stageId: item.stageId, status: "awaiting owner 2FA approval" }, null, 2)}\n`,
+    `${JSON.stringify({ ...evidence, stageId, status: "awaiting owner 2FA approval" }, null, 2)}\n`,
   );
   console.log(
-    `Stage ${item.stageId} submitted. Owner review and npm 2FA approval are required.`,
+    `Stage ${stageId} submitted. Owner review and npm 2FA approval are required.`,
   );
 }
 
