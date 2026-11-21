@@ -2,8 +2,10 @@
 
 Release Please replaces semantic-release. Ordinary main commits maintain a
 version/changelog release PR only after the main commit passes verification.
-The manifest and package start at the already published 1.3.0; the bootstrap
-commit is the existing v1.3.0 commit, so older changes are not proposed again.
+The manifest records the published 1.4.0 baseline. Since 1.4.0 was published
+without a Git tag, the bootstrap SHA uses the source commit recorded in its
+[npm provenance](https://registry.npmjs.org/-/npm/v1/attestations/ghq-sector@1.4.0).
+Release Please uses that commit as the cutoff for the next changelog.
 
 **Automatic GitHub tags/releases and npm publication are disabled.** The user
 chose to land dependency updates first without an unauditable publishing tool.
