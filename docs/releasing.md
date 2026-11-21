@@ -1,4 +1,4 @@
-# Release PRs and publication pause
+# Release PRs and npm staging
 
 Release Please replaces semantic-release. Ordinary main commits maintain a
 version/changelog release PR only after the main commit passes verification.
@@ -7,19 +7,10 @@ without a Git tag, the bootstrap SHA uses the source commit recorded in its
 [npm provenance](https://registry.npmjs.org/-/npm/v1/attestations/ghq-sector@1.4.0).
 Release Please uses that commit as the cutoff for the next changelog.
 
-**Automatic GitHub tags/releases and npm publication are disabled.** The user
-chose to land dependency updates first without an unauditable publishing tool.
-The normal flow has `verify` and `release-pr` jobs without OIDC permission.
-A separate manual stage job can receive OIDC after owner approval.
-Merging a release PR can update version/changelog files, but creates no tag or
-published package. Review release PRs as proposals; restore publication in a
-separate reviewed change before using them to release a version. Nothing here
-changes npm trusted publisher settings or creates credentials.
-
-The optional [manual 1.4.0 staging proposal](npm-stage-1.4.0.md) is separate
-from this automatic flow. It requires owner review, explicit version-scoped
-publisher risk consent and a protected environment. It uses the existing
-ghq-sector npm Trusted Publisher identity. It does not restore automatic tags/releases or publication.
+The normal flow runs `verify` and `release-pr` without OIDC permission. Merging a
+release PR updates the version and changelog. GitHub tag and release creation
+remain disabled. A separate manual dispatch uses the existing ghq-sector npm
+Trusted Publisher to stage the package for owner approval.
 
 ## Verification and review
 
@@ -39,7 +30,7 @@ the former tag/release helper remains disabled.
 
 ## Local acceptance
 
-Use Node 24 and Bun 1.3.13. Bun remains the repository manager; retain its Socket
+Use Node 24 and Bun 1.3.13. Bun remains the repository manager. Retain its Socket
 scanner and three-day minimum release age. No global manager changes are needed.
 
 ```sh
@@ -58,9 +49,10 @@ Run `bun run fmt` to apply formatting locally.
 
 `bun run audit` checks the root Bun tree, UI Bun tree and root npm lockfile at the
 existing moderate threshold, including the release tooling. No application or release-PR advisory is
-ignored. The separately locked stage publisher is audited against its actual
-installed tree by the stage job, with raw findings retained and explicit
-1.4.0-only owner consent required for the documented risks.
+ignored. The separate publisher lock uses npm's `libnpmpublish` and records the
+complete installed tree. CI checks that tree and exercises the staging request
+against a local fixture. The stage job requires a complete audit with zero
+findings before any submission, then retains the raw audit.
 
 `pack:check` uses `bun pm pack --ignore-scripts` into a temporary directory. It
 checks the actual tarball manifest/version, both CLI bin aliases, the built CLI,
@@ -68,31 +60,31 @@ UI index/assets and LICENSE, then removes the temporary tarball. It removes npm
 and OIDC credentials from the packaging subprocess environment and never calls
 a publish command. CI runs it with `--consumer` on the minimum supported Node.js
 version to install the tarball with strict engine checks and start the CLI.
-Actual npm OIDC authentication remains untested.
 
-## Why publication remains disabled (2026-10-03)
+## Stage a release
 
-The actual official npm 11.20.0 and 11.21.0 publisher installations each audit at
-24 affected entries (23 high, one moderate), including dependent packages. There
-are four directly affected bundles: brace-expansion 5.0.9, ip-address 10.5.0,
-undici 6.28.0 and http-cache-semantics 4.2.0. The previously inspected npm 12.2.0
-bundles the same affected copies. Consumer overrides and `npm audit fix` do not
-replace npm's bundled dependencies.
+1. Check CI and Security on the exact release PR head, then merge the release PR.
+   Record the resulting `main` SHA and the version in the release manifest.
+2. Enable the repository variable `GHQ_SECTOR_STAGING_ENABLED` for the release.
+   Dispatch `release.yml` on `main` with `prepare_npm_stage=true` and the exact
+   `expected_sha` and `expected_version`.
+3. Inspect the tarball and `evidence.json` from the successful `verify` job.
+   Approve the protected `npm-stage` environment to allow OIDC. The stage job
+   checks current `main`, the version, and the SHA-256 output of the verify job.
+   It signs provenance and submits the exact bytes from the same run attempt.
+4. Compare the submitted package and receipt before approving the stage on
+   npm with the maintainer's 2FA. Verify the public tarball integrity,
+   provenance source commit, and a fresh consumer install. Set
+   `GHQ_SECTOR_STAGING_ENABLED` back to `false` after the stage run.
 
-The [http-cache-semantics advisory](https://github.com/advisories/GHSA-ch52-4w7c-c8xp)
-currently lists no patched release, and its
-[upstream issue](https://github.com/kornelski/http-cache-semantics/issues/56) is open.
-A minor or major CLI upgrade therefore does not make publication auditable.
-The candidate npm 11.21.0 also had not reached the repository's three-day release
-age at verification time; it was tested in an isolated research directory and
-was not promoted to the project. Rebuilding or forking npm would still need a
-reviewed fix for the unpatched dependency and is not part of this change.
+If the upload outcome is unknown, inspect the npm Staged Packages tab before
+retrying. After correcting a known failure, rerun preparation and staging
+together for the same source and version.
 
-Any publication path must lock and audit the
-actual executed dependency tree, test package creation and release recovery,
-bind artifacts to the checked SHA/version, and preserve the existing
-trusted publisher workflow identity. The optional one-off path documents the
-remaining CLI risks and gates new OIDC access on owner approval.
-Keep all acceptance/audit gates before any tag or publication. Restoring a
-publisher is an explicit implementation change; ordinary main or release-PR
-merges cannot enable it.
+The [1.4.0 staging record](npm-stage-1.4.0.md) preserves the previous release's
+artifact and risk decision. The current workflow requires a clean publisher
+audit for every stage.
+
+References: [npm staged publishing](https://docs.npmjs.com/staged-publishing/),
+[trusted publishers](https://docs.npmjs.com/trusted-publishers/), and
+[libnpmpublish](https://github.com/npm/cli/tree/latest/workspaces/libnpmpublish).

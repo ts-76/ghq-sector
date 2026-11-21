@@ -7,40 +7,26 @@ import {
   requireEvidence,
   requirePublisherAudit,
   requireSource,
-  stageArguments,
 } from "../scripts/npm-stage.mjs";
 
-const known = {
-  metadata: { vulnerabilities: { total: 1 } },
-  vulnerabilities: {
-    "http-cache-semantics": {
-      severity: "high",
-      via: [{ url: "https://github.com/advisories/GHSA-ch52-4w7c-c8xp" }],
-    },
-  },
-};
-
-describe("one-off npm staging", () => {
-  it("requires explicit consent for known risks and rejects another version", () => {
-    expect(() => requirePublisherAudit(known, "false", "1.4.0")).toThrow();
-    expect(() => requirePublisherAudit(known, "true", "1.4.0")).not.toThrow();
-    expect(() => requirePublisherAudit(known, "true", "1.4.1")).toThrow();
-  });
-
-  it("blocks unknown advisories, critical findings and incomplete reports", () => {
-    const unknown = structuredClone(known);
-    unknown.vulnerabilities["http-cache-semantics"].via[0].url =
-      "https://github.com/advisories/GHSA-new-risk-test";
-    expect(() => requirePublisherAudit(unknown, "true", "1.4.0")).toThrow();
-    const critical = structuredClone(known);
-    critical.vulnerabilities["http-cache-semantics"].severity = "critical";
-    expect(() => requirePublisherAudit(critical, "true", "1.4.0")).toThrow();
-    const incomplete = structuredClone(known);
-    incomplete.metadata.vulnerabilities.total = 0;
-    expect(() => requirePublisherAudit(incomplete, "true", "1.4.0")).toThrow();
+describe("npm staging", () => {
+  it("requires a complete audit report with zero findings", () => {
+    const clean = {
+      metadata: { vulnerabilities: { total: 0 } },
+      vulnerabilities: {},
+    };
+    const findings = { glob: { severity: "moderate" } };
+    expect(() => requirePublisherAudit(clean)).not.toThrow();
     expect(() =>
-      requirePublisherAudit({ error: "network" }, "true", "1.4.0"),
+      requirePublisherAudit({
+        metadata: { vulnerabilities: { total: 1 } },
+        vulnerabilities: findings,
+      }),
     ).toThrow();
+    expect(() =>
+      requirePublisherAudit({ ...clean, vulnerabilities: findings }),
+    ).toThrow();
+    expect(() => requirePublisherAudit({ error: "network" })).toThrow();
   });
 
   it("blocks changed source, altered artifacts and earlier run attempts", () => {
@@ -93,12 +79,7 @@ describe("one-off npm staging", () => {
     ).toThrow();
   });
 
-  it("uses stage-only arguments and strips user tokens and proxy variables", () => {
-    const args = stageArguments("/tmp/accepted.tgz", "/tmp/isolated");
-    expect(args.slice(0, 2)).toEqual(["stage", "publish"]);
-    expect(args).toContain("--ignore-scripts");
-    expect(args).toContain("--provenance");
-    expect(args).toContain("--fetch-retries=0");
+  it("strips user tokens and proxy variables", () => {
     expect(
       publisherEnvironment({
         PATH: "/bin",
@@ -111,7 +92,7 @@ describe("one-off npm staging", () => {
     ).toEqual({ PATH: "/bin", GITHUB_ACTIONS: "true" });
   });
 
-  it("cannot stage on push, from a PR or without activation and consent", async () => {
+  it("stages from an activated main dispatch using the verify job's artifact", async () => {
     const workflow = YAML.parse(
       await readFile(".github/workflows/release.yml", "utf8"),
     );
@@ -123,9 +104,9 @@ describe("one-off npm staging", () => {
       false,
     );
     expect(workflow.permissions).toEqual({ contents: "read" });
-    expect(
-      workflow.on.workflow_dispatch.inputs.publisher_risk_consent.default,
-    ).toBe(false);
+    expect(workflow.on.workflow_dispatch.inputs.expected_version.default).toBe(
+      "",
+    );
     expect(workflow.jobs.stage.needs).toBe("verify");
     expect(workflow.jobs.stage.if).toContain(
       "github.event_name == 'workflow_dispatch'",
@@ -135,7 +116,6 @@ describe("one-off npm staging", () => {
     expect(workflow.jobs.stage.if).toContain(
       "vars.GHQ_SECTOR_STAGING_ENABLED == 'true'",
     );
-    expect(workflow.jobs.stage.if).toContain("inputs.publisher_risk_consent");
     expect(workflow.jobs.stage.environment).toBe("npm-stage");
     expect(workflow.jobs.stage.permissions).toEqual({
       contents: "read",
@@ -156,6 +136,16 @@ describe("one-off npm staging", () => {
     );
     expect(install.run).not.toContain("/dev/null");
     expect(workflow.jobs.verify.permissions?.["id-token"]).toBeUndefined();
+    expect(workflow.jobs.verify.outputs.tarball_sha256).toBe(
+      "${{ steps.prepare.outputs.sha256 }}",
+    );
+    const submit = workflow.jobs.stage.steps.find(
+      (step: { run?: string }) =>
+        step.run === "node scripts/npm-stage.mjs stage",
+    );
+    expect(submit.env.PREPARED_TARBALL_SHA256).toBe(
+      "${{ needs.verify.outputs.tarball_sha256 }}",
+    );
     const upload = workflow.jobs.verify.steps.find(
       (step: { uses?: string }) => step.uses === "actions/upload-artifact@v4",
     );
