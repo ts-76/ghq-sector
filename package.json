@@ -37,7 +37,7 @@
     "sync-ui-dist": "mkdir -p dist/ui-dist && rm -rf dist/ui-dist/assets && cp -R ui/dist/* dist/ui-dist/",
     "build-bin": "tsdown --entry src/cli/main.ts --format esm --out-dir dist/cli --target node20",
     "build": "bun run build-ui && bun run sync-ui-dist && bun run build-bin",
-    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate",
+    "audit": "bun audit --audit-level=moderate && bun audit --cwd ui --audit-level=moderate && npm audit --audit-level=moderate && npm audit --prefix tools/publisher --audit-level=low",
     "pack:check": "node scripts/pack-check.mjs"
   },
   "keywords": [
