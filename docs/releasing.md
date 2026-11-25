@@ -48,11 +48,11 @@ bun run pack:check
 Run `bun run fmt` to apply formatting locally.
 
 `bun run audit` checks the root Bun tree, UI Bun tree and root npm lockfile at the
-existing moderate threshold, including the release tooling. No application or release-PR advisory is
-ignored. The separate publisher lock uses npm's `libnpmpublish` and records the
-complete installed tree. CI checks that tree and exercises the staging request
-against a local fixture. The stage job requires a complete audit with zero
-findings before any submission, then retains the raw audit.
+moderate threshold, including the release tooling. It checks the separate npm
+publisher lockfile at the low threshold. The publisher lock records npm's
+`libnpmpublish` and its complete installed tree. CI also checks that tree and
+exercises the staging request against a local fixture. The stage job requires a
+complete audit with zero findings before any submission, then retains the raw audit.
 
 `pack:check` uses `bun pm pack --ignore-scripts` into a temporary directory. It
 checks the actual tarball manifest/version, both CLI bin aliases, the built CLI,
